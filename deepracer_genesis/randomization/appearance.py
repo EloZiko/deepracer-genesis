@@ -6,7 +6,8 @@ to it (only vis/rasterizer_context.py honors it), so every env renders ALL
 variants superimposed and z-fighting picks the pixels. The env therefore does
 NOT use this module for camera training — world-appearance DR is done as a
 per-env, per-episode color remap of the rendered observation instead (see
-DeepRacerEnv._resample_world_color). This module remains for rasterizer-based
+envs/renderers.py `_CameraRenderer.resample_appearance`). This module remains
+for rasterizer-based
 tooling and as the baked-variant generator should the batch renderer grow
 per-env visibility.
 

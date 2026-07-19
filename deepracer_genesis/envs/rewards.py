@@ -1,62 +1,46 @@
-"""Reward functions: named, swappable, written in plain torch.
+"""Reward functions: swappable, written in plain torch — passed as parameters.
 
-A reward function maps the env to a dict of NAMED PER-STEP TERMS — (N,)
-CUDA tensors, one value per parallel car. Which terms count, and how much,
-is the `reward_scales` dict (spec-level, sweepable); the weighted sum is the
-step reward and every term is logged per episode (`Episode/rew_<name>`).
+A reward function maps the env to a dict of NAMED PER-STEP TERMS — (N,) CUDA
+tensors, one value per parallel car. Which terms count, and how much, is the
+`reward_scales` dict (spec-level, sweepable); the weighted sum is the step
+reward and every term is logged per episode (`Episode/rew_<name>`).
 
-Write your own next to your experiment:
+Write your own and pass it straight in — no registration:
 
-    from deepracer_genesis.envs.rewards import register_reward
+    import torch
+    from deepracer_genesis.envs.rewards import RewardFn  # (just the type alias)
 
-    @register_reward("time_trial")
-    def time_trial(env):
+    def time_trial(env) -> dict[str, torch.Tensor]:
         return {
             "progress": env.d_progress,                       # meters this step
             "alive": torch.full_like(env.d_progress, -env.dt) # ticking clock
         }
 
-    ... >> RewardShaping(fn="time_trial", scales={"progress": 10.0, "alive": 1.0})
+    ... >> RewardShaping(fn=time_trial, scales={"progress": 10.0, "alive": 1.0})
 
 Everything is batched torch on GPU — same speed as the built-in. Useful env
 attributes (all (N,) tensors, driving-direction aware): d_progress, lateral,
-half_width, heading_err, v_forward, v_lateral, yaw_rate, actions,
-last_actions, dt, plus anything else on DeepRacerEnv.
+half_width, heading_err, v_forward, v_lateral, yaw_rate, actions, last_actions,
+dt, plus anything else on DeepRacerEnv.
 
-NOTE the spec hashes the reward's NAME + scales, not the function body, into
-the run-dir id(). Runs always retrain (no result cache), so editing a
-registered function just retrains — nothing stale to shadow the change.
+The spec records a reward fn by its NAME (``__qualname__``) for the run-dir id
+and the run record — rename the fn (or change its scales) to get a new run.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Callable
+
 import torch
 
-REWARDS: dict[str, callable] = {}
+if TYPE_CHECKING:
+    from .base_env import DeepRacerEnv
+
+#: a reward fn maps the env to ``{term_name: (N,) tensor}``
+RewardFn = Callable[["DeepRacerEnv"], "dict[str, torch.Tensor]"]
 
 
-def register_reward(name: str):
-    """Decorator: make `name` usable in RewardShaping(fn=name)."""
-    def deco(fn):
-        if name in REWARDS:
-            raise ValueError(f"reward fn {name!r} already registered")
-        REWARDS[name] = fn
-        return fn
-    return deco
-
-
-def resolve_reward(name: str):
-    try:
-        return REWARDS[name]
-    except KeyError:
-        raise ValueError(
-            f"unknown reward fn {name!r}; registered: {sorted(REWARDS)} "
-            "(custom rewards register via deepracer_genesis.envs.rewards"
-            ".register_reward)") from None
-
-
-@register_reward("deepracer")
-def deepracer(env) -> dict[str, torch.Tensor]:
+def deepracer(env: "DeepRacerEnv") -> dict[str, torch.Tensor]:
     """The default shaping: progress-dominated with stability terms."""
     on_track = env.lateral.abs() < (env.half_width - env.cfg["wheel_margin"])
     return {

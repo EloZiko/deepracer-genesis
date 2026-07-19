@@ -11,9 +11,12 @@ import json
 import os
 import time
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
+
+if TYPE_CHECKING:
+    from ..envs.deepracer_env import DeepRacerEnv
 
 
 @dataclass
@@ -73,8 +76,9 @@ class EvalRecord:
             return EvalRecord(**json.load(f))
 
 
-def evaluate_policy(sim, actor, steps: Optional[int] = None,
-                    obs_transform=None, cost_budget: Optional[float] = None) -> dict:
+def evaluate_policy(sim: "DeepRacerEnv", actor, steps: Optional[int] = None,
+                    obs_transform: Callable | None = None,
+                    cost_budget: Optional[float] = None) -> dict:
     """Deterministic eval rollout driving the RAW sim (plan section 5.2).
 
     Bypasses the collector/autoreset machinery entirely: per-step episode

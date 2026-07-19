@@ -62,10 +62,10 @@ class Builder:
         spec: The experiment spec; validated on construction.
     """
 
-    def __init__(self, spec: ExperimentSpec):
+    def __init__(self, spec: ExperimentSpec) -> None:
         spec.validate()
-        self.spec = spec
-        self._sim = None
+        self.spec: ExperimentSpec = spec
+        self._sim: DeepRacerEnv | None = None
 
     # ------------------------------------------------------------- sim
     def sim_cfg(self) -> dict:
@@ -83,7 +83,7 @@ class Builder:
         cfg["random_direction"] = env.random_direction
         cfg["feature_set"] = env.feature_set
         cfg["feature_params"] = dict(env.feature_params)
-        cfg["reward_fn"] = env.reward_fn
+        cfg["reward_fn"] = env.reward   # a callable (or None -> deepracer default)
         cfg["reward_scale_overrides"] = dict(env.reward_scales)
         if env.render == "nyx":
             cfg["vision_renderer"] = "nyx"

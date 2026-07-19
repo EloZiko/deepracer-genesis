@@ -13,7 +13,17 @@ import hashlib
 import json
 import warnings
 from dataclasses import asdict, dataclass, field
-from typing import Literal, Optional
+from typing import TYPE_CHECKING, Literal, Optional
+
+if TYPE_CHECKING:
+    from ..envs.rewards import RewardFn
+
+
+def _json_default(o):
+    """Record a pluggable callable/class (reward fn, later algorithm/feature)
+    by its NAME — never by value — so the spec dump stays JSON + the run-dir id
+    stays stable/readable."""
+    return getattr(o, "__qualname__", None) or getattr(o, "__name__", None) or repr(o)
 
 
 class SpecError(ValueError):
@@ -46,10 +56,10 @@ class EnvSpec:
     # coin-flip the driving direction (CW vs CCW) each episode; heading /
     # progress / lookahead observations follow the chosen direction
     random_direction: bool = False
-    # reward: name of a registered reward fn (envs/rewards.py) + scale
-    # overrides. The NAME is hashed into the run-dir id (not the function body);
-    # runs always retrain, so an edited fn just retrains.
-    reward_fn: str = "deepracer"
+    # reward: a reward CALLABLE (envs/rewards.py: env -> {term: (N,) tensor}) +
+    # scale overrides. None keeps the built-in `deepracer` default. The fn's
+    # NAME is recorded in the run-dir id (not its body); runs always retrain.
+    reward: "RewardFn | None" = None
     reward_scales: dict = field(default_factory=dict)
     emits_cost: bool = False
     cost_fn: Optional[str] = None
@@ -122,8 +132,9 @@ class ExperimentSpec:
 
     # ------------------------------------------------------------------
     def to_dict(self) -> dict:
-        """One-way dump (tuples normalized to lists) for hashing + records."""
-        return json.loads(json.dumps(asdict(self)))
+        """One-way dump (tuples -> lists, callables -> their name) for the
+        hashing + run records."""
+        return json.loads(json.dumps(asdict(self), default=_json_default))
 
     def id(self) -> str:
         """Content-hash identity (sha1 of the config JSON). Two specs with the

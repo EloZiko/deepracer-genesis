@@ -4,10 +4,10 @@ shift, controller gains (kp/kv) and motor armature, all batched per env.
 
 Requires `batch_dofs_info=True, batch_links_info=True` in RigidOptions (the
 env enables both when `randomize` is on). Applied at episode reset via
-`envs_idx` so each episode draws fresh physics. Visual DR: camera mount
-jitter (per-env batched offset transforms) and pixel noise (applied in the
-env's observation path). Per-env lighting is not supported by the current
-BatchRenderer; global lighting is fixed at build.
+`envs_idx` so each episode draws fresh physics. Visual DR lives with the
+renderer strategy (`envs/renderers.py`): camera-mount jitter on the Madrona
+renderer, world-color remap on the vision renderers. Per-env lighting is not
+supported by the current BatchRenderer; global lighting is fixed at build.
 """
 
 import torch
@@ -54,30 +54,3 @@ def randomize_physics(env, env_ids):
         car.set_dofs_armature(
             _u(lo, hi, (n, 6), env.device),
             env.wheel_dofs + env.steer_dofs, envs_idx=env_ids)
-
-
-def randomize_camera_mount(env, env_ids):
-    """Jitter the onboard camera mount per env (batched offset transforms)."""
-    cfg = env.cfg["rand"]
-    jitter_deg = cfg.get("camera_pitch_jitter_deg", 0.0)
-    jitter_pos = cfg.get("camera_pos_jitter_m", 0.0)
-    if jitter_deg <= 0 and jitter_pos <= 0:
-        return
-
-    cam = env.cam
-    base = torch.as_tensor(env.cam_offset_T, dtype=torch.float32, device=env.device)
-    if cam._attached_offset_T.dim() == 2:
-        cam._attached_offset_T = base.expand(env.num_envs, 4, 4).clone()
-
-    n = len(env_ids)
-    p = torch.deg2rad(_u(-jitter_deg, jitter_deg, (n,), env.device))
-    rx = torch.zeros(n, 4, 4, device=env.device)
-    rx[:, 0, 0] = 1.0
-    rx[:, 3, 3] = 1.0
-    rx[:, 1, 1] = torch.cos(p)
-    rx[:, 1, 2] = -torch.sin(p)
-    rx[:, 2, 1] = torch.sin(p)
-    rx[:, 2, 2] = torch.cos(p)
-    T = base.expand(n, 4, 4).clone() @ rx
-    T[:, :3, 3] += _u(-jitter_pos, jitter_pos, (n, 3), env.device)
-    cam._attached_offset_T[env_ids] = T

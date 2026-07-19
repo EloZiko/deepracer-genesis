@@ -83,6 +83,29 @@ unchanged (they exercise `id()`, which was kept). Full suite: 57 passed.
 
 ## Part B — decompose `DeepRacerEnv`
 
+**Slice 1 DONE**: `rules.py` (stateless predicates), `mdp.py`
+(`compute_reward`/`check_termination`), `scene.py` (scene assembly). Env
+delegates.
+
+**Slice 2 DONE** — the full decomposition + renderer strategy + env split:
+- `entities.py` — `Car` (URDF + steering/drive/reset; `__getattr__` forwards raw
+  entity methods so `domain_rand`/`camera_check` keep working unchanged).
+- `renderers.py` — `Renderer` strategy: `NullRenderer`/`MadronaRenderer`/
+  `NyxRenderer`. Owns ALL `if vision`/`if nyx` branching, world-color
+  resample+remap, camera-mount DR, and the spectator/top-down debug views
+  (spectator works in feature mode too; top-down is vision-only).
+- `base_env.py` (`DeepRacerEnv` base + `__new__` dispatch) + `vision_env.py` +
+  `vector_env.py`; `deepracer_env.py` is a 17-line re-export. `DeepRacerEnv`
+  stays the base type (isinstance/annotations hold).
+- `domain_rand.py` lost `randomize_camera_mount` (now `MadronaRenderer`);
+  `scene.py` rewritten to orchestrate scene + `Car` + `Renderer`.
+
+Verified: 57 tests + a Genesis build+step smoke across feature, vision
+(+spectator+top-down), vision+DR (physics + camera-mount), vision+world-color,
+and feature+spectator — each in its own process (Genesis 1.2.1 can't rebuild
+multiple scenes per process; the batched combined run hits that limit, not a
+code bug). No external caller reads a moved attribute.
+
 Target module layout under `envs/`:
 
 ```
@@ -207,6 +230,18 @@ snapshot `step_info` → reset done envs — and the CUDA stream fences
 
 With no content-hash, nothing needs a hashable string. Pass the code directly.
 
+**C.1 reward fn DONE.** `rewards.py` dropped `REWARDS`/`register_reward`/
+`resolve_reward` and now exposes just the `RewardFn` type alias + the `deepracer`
+default. `EnvSpec.reward: RewardFn | None = None` (None = built-in default);
+`RewardShaping(fn=<callable>)`; the env consumes the callable (`reward_terms is
+the passed fn`). `spec.py` stays genesis-free (TYPE_CHECKING alias) and
+`to_dict()` records callables BY NAME via `json.dumps(default=…)` so `id()`/run
+records stay JSON + stable. Verified: 57 tests + a genesis smoke calling a passed
+reward. Still TODO: **C.2** feature set (also fixes Finding 1 — the env must
+actually instantiate the selected FeatureSet), **C.3** algorithm
+(`AlgorithmSpec.cls`, capability flag for Lagrangian), **C.4** experiments
+(explicit `EXPERIMENTS` map).
+
 - **Reward**: `RewardFn = Callable[[Env], dict[str, Tensor]]` (alias in
   `rewards.py`). Delete `REWARDS`/`register_reward`/`resolve_reward`. Env +
   `mdp.compute_reward` take the callable; `EnvSpec.reward: RewardFn = deepracer`.
@@ -289,6 +324,20 @@ moment to fix them.
    batched-torch functions, easy to test on tiny synthetic tracks.
 
 ## Part E — type annotations + Google-style docstrings + a checker (cross-cutting)
+
+**Boundary pass + checker DONE (priority 1).** `pyrightconfig.json` stands (basic
+mode, non-blocking). Boundary objects are now typed: `torchrl_env.py` (`sim`),
+`deepracer_env.py` (constructor + `step`/`reset_idx`/`get_observations`/render
+signatures), `evaluator.py` (`sim: DeepRacerEnv`), `trainer.py` (`builder:
+Builder` + `self.b`, plus an explicit `assert spec.env and spec.algorithm` that
+documents the post-validate invariant), `builder.py` (`self._sim`/`self.spec`).
+Heavy/cyclic refs use `TYPE_CHECKING`. Pyright total moved 165→167: typing
+`self.b: Builder` lets the checker *see* the checkpoint/export path for the first
+time, surfacing 6 runtime-safe latent `Optional`-accesses (guarded `getattr` +
+validated `spec.policy`) — priority-2 follow-ups, not regressions. Still open
+(priority 2–4): remaining public signatures across `datasets/`, `algorithms/`
+impls; the config surface (Part D); pluggable contracts (B/C); Google-docstring
+sweep on the core.
 
 The single biggest day-to-day readability win. The codebase leans on untyped
 params, so relationships are invisible until you read the body — e.g.

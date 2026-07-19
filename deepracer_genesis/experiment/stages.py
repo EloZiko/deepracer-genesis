@@ -9,7 +9,10 @@ Build-time only — nothing here runs per-step.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from ..envs.rewards import RewardFn
 
 from .spec import (
     ActionDRSpec,
@@ -220,22 +223,22 @@ def discrete_grid(steer_bins: int = 5, speed_bins: int = 2,
 # Reward stage
 @dataclass(frozen=True)
 class RewardShaping(Stage):
-    """Select a registered reward fn and/or override term scales.
+    """Set the reward fn and/or override term scales.
 
-    `fn` names a function registered with
-    `deepracer_genesis.envs.rewards.register_reward` (write it in plain
-    torch over the batched env — see that module's docstring). `scales`
-    overrides entries of the default reward_scales dict.
+    `fn` is a reward CALLABLE (``env -> {term: (N,) tensor}``; write it in
+    plain torch over the batched env — see :mod:`deepracer_genesis.envs.rewards`).
+    ``None`` keeps the built-in ``deepracer`` reward. `scales` overrides entries
+    of the default reward_scales dict.
     """
 
-    fn: str = "deepracer"
+    fn: Optional["RewardFn"] = None
     scales: Optional[dict] = None
 
     KIND = "reward"
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
         return replace(spec, env=replace(
-            spec.env, reward_fn=self.fn, reward_scales=dict(self.scales or {})))
+            spec.env, reward=self.fn, reward_scales=dict(self.scales or {})))
 
 
 # ----------------------------------------------------------------------

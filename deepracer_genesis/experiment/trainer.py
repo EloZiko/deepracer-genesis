@@ -20,11 +20,14 @@ from __future__ import annotations
 import json
 import os
 import time
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 import torch
 
 from .evaluator import EvalRecord, evaluate_policy
+
+if TYPE_CHECKING:
+    from .builder import Builder
 
 
 def _maybe_mlflow():
@@ -63,8 +66,8 @@ class Trainer:
         root: Runs directory; the run dir is ``spec.run_dir(root)``.
     """
 
-    def __init__(self, builder, root: str = "runs") -> None:
-        self.b = builder
+    def __init__(self, builder: "Builder", root: str = "runs") -> None:
+        self.b: "Builder" = builder
         self.root = root
 
     # ------------------------------------------------------------------
@@ -84,6 +87,9 @@ class Trainer:
             The freshly trained EvalRecord.
         """
         spec = self.b.spec
+        # Builder(spec) ran spec.validate(), which guarantees env + algorithm
+        # are populated — make that invariant explicit for readers and pyright.
+        assert spec.env is not None and spec.algorithm is not None
         run_dir = spec.run_dir(self.root)
         os.makedirs(run_dir, exist_ok=True)
         with open(os.path.join(run_dir, "spec.json"), "w") as f:
