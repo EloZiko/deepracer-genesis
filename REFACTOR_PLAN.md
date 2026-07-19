@@ -369,6 +369,136 @@ unchanged; if removed, strip them from all `build(...)` calls above.
 `nbconvert --execute` runs each with a tiny `num_envs`/`total_env_steps` (or at
 minimum that every code cell imports/parses), so API drift is caught.
 
+## Part H — shared search-space TYPES for HPO ↔ DR (verified design)
+
+User goal: define a range/choice-list once and use it for both Domain
+Randomization and HPO. **Adversarial verification (workflow `wp4ww6uav`) refuted
+the naive "one unified space object both samplers read from one declaration"** —
+it leaks in three places. The sound design is **shared range *types*, separate
+declaration *sites*.**
+
+Why one object fails (all verified against `domain_rand.py` + `hpo_optuna.py`):
+- **Categorical is HPO-only.** No train-time DR param is categorical (the sole
+  `rng.choice` is offline `appearance.py:98`, not wired to the env). And
+  string/tuple HPO choices (`'relu'`, `(256,128)`) can't be a batched CUDA
+  tensor — `Choice.sample(n, device)` is unimplementable.
+- **HPO and DR sample at different *levels*.** HPO draws ONE scalar and freezes
+  it into the `ExperimentSpec` for the whole trial; DR keeps a *range* and
+  resamples `(n,…)` on GPU every `reset_idx`. One declaration site can't be both
+  "a value to freeze" and "a range to resample".
+- **`log` and symmetric magnitudes don't mix.** DR has zero log params today; and
+  its `[-m,m]` magnitude params (`mass_shift_kg`, `com_shift_m`, camera jitters)
+  and gaussian world-color draws can't be expressed as `FloatRange(lo,hi,log)`.
+
+Design — a small typed hierarchy in `deepracer_genesis/search/spaces.py`:
+
+```python
+class Space(Protocol):
+    def suggest(self, trial, name): ...        # HPO: one CPU python scalar
+    def sample(self, n, device): ...           # DR: (n,) CUDA tensor
+
+class FloatRange(Space):   # lo, hi, log=False   — implements BOTH honestly
+class IntRange(Space):     # lo, hi              — implements BOTH
+class SymRange(Space):     # m  -> sample in [-m, m], gated m>0; DR-native
+                           #   suggest() searches the bound m (meta), or raises
+class Choice(Space):       # values             — suggest() only; sample() raises
+                           #   (documented: no batched-GPU categorical DR exists)
+```
+
+Rules the verifier pinned down:
+- `log=True` only on strictly-positive `FloatRange`; reject it elsewhere.
+- Each space carries a `kind` so `builder.sim_cfg` still emits the exact
+  `cfg["rand"]` shape `domain_rand.py` expects — a `(lo,hi)` tuple for
+  friction/steer_kp/wheel_kv/armature vs a scalar magnitude for
+  mass/com/camera-jitter (the `if m>0 / if hi>0` gating depends on the shape).
+- The gaussian world-color remap (`deepracer_env.py:530-553`) stays bespoke — it
+  is not a range.
+
+Separate declaration sites, shared types:
+- **DR**: `ObsDRSpec.physics/camera_jitter` become typed `Space` objects instead
+  of free dicts; `domain_rand._u(...)` calls `space.sample(n, device)`
+  (`domain_rand.py:16-56` is the single consumption point).
+- **HPO**: replace the inline `trial.suggest_*` in `hpo_optuna.py:33-36` and
+  `notebooks/hpo_cnn.ipynb` with a `{name: Space}` dict → `space.suggest(trial,
+  name)`; apply via the existing dotted-path `override()` (`ablation.py:45`).
+- **Bonus consolidation**: `ablation.py` `sweep()/grid()` are declarative but
+  **categorical-only** today; giving them `Space` kinds adds continuous/int/log
+  to ablations and removes the parallel range machinery.
+
+Net: a user writes `friction = FloatRange(0.6, 1.4)` once and can hand it to DR
+(resampled per episode) *or* to an HPO study (searched as a scalar) — same type,
+each site chooses `sample` vs `suggest`. That is the "parallel interface" — not a
+single object spanning both samplers.
+
+## Part I — physical limits / constants single-source-of-truth (verified audit)
+
+User goal: one file of suggested/base values (physical caps like max steering &
+speed) the user builds on. Split into **immutable reference** vs **tunable
+defaults** (the verifier confirmed this split is clean and actionable).
+
+New `deepracer_genesis/physics/limits.py` — immutable, imported everywhere:
+
+```python
+WHEELBASE_M   = 0.163974   # URDF hinge_x − rear_wheel_x (replaces the rounded
+                           #   features.py NOMINAL_WHEELBASE=0.164, off by 0.016%)
+FRONT_TRACK_M = 0.159202   # 2 × steering-hinge |y|
+MAX_STEERING_DEG = 30.0    # OPERATIONAL action cap (NOT the URDF joint limit,
+                           #   which is ±1 rad ≈ 57.3° — document the distinction)
+MIN_SPEED, MAX_SPEED = 0.1, 4.0            # DeepRacer action Box
+YAW_RATE_NORM, BETA_NORM = 5.0, 0.5        # normalization divisors (fixed)
+CURVATURE_NORM, A_LAT_NORM = 2.5, 20.0
+# one action→physical mapping helper (dedupe of deepracer_env.py:389-391
+# and features.py:248-249):
+def map_action(actions): -> (steer_rad, speed_mps)
+```
+
+Verified duplications to fix by importing from `limits.py`:
+- `features.py:46` `NOMINAL_WHEELBASE=0.164` → `WHEELBASE_M` (also used at
+  `features.py:250` for the nominal-bicycle yaw model).
+- `deepracer_env.py:485` hard-coded `/ 5.0` → `YAW_RATE_NORM`.
+- steering/speed caps duplicated at `cfgs.py:12-14`, `features.py:40-47`,
+  `onnx.py:45-46` → single import.
+- `map_action` replaces the two verbatim copies of the `[-1,1]→physical` formula.
+- **Keep** `wheel_radius` DERIVED from the STL at load (`deepracer_env.py:281`) —
+  no literal; optionally expose the computed value read-only.
+
+Layering: `limits.py` (immutable geometry + action caps + norm divisors) ←
+`cfgs.py` imports it and keeps ONLY the tunable gains (`steer_kp/steer_kv/
+wheel_kv/wheel_max_torque`) and the DR ranges as user-overridable *suggested
+defaults*. That two-tier file is exactly the "base values to build on" you asked
+for. When Part H lands, the DR defaults in `cfgs.py` become `Space` objects.
+
+## Part J — parallel → Ackermann steering (verified, ready to implement)
+
+Fully verified (workflow `wp4ww6uav`, 6/6 adversarial checks). The two front
+hinges are independent joints (no `<mimic>`), so Ackermann is mechanically
+available — currently discarded by `steer.repeat(1, 2)` (`deepracer_env.py:394`).
+
+Replacement (lands in `mdp.map_action`, Part B.5; L/t imported from `limits.py`,
+Part I — no magic numbers):
+
+```python
+# Ackermann front steering (replaces steer.repeat(1, 2))
+delta  = self.actions[:, 0:1] * math.radians(self.cfg["max_steering_deg"])  # (N,1), +left
+tan_d  = torch.tan(delta)
+half_t = 0.5 * FRONT_TRACK_M
+delta_left  = torch.atan2(WHEELBASE_M * tan_d, WHEELBASE_M - half_t * tan_d)  # STEER_DOFS[0]
+delta_right = torch.atan2(WHEELBASE_M * tan_d, WHEELBASE_M + half_t * tan_d)  # STEER_DOFS[1]
+steer_lr = torch.cat([delta_left, delta_right], dim=1)                        # (N,2) [left,right]
+self.car.control_dofs_position(steer_lr, self.steer_dofs)
+```
+
+Correctness notes (verified): `atan2` keeps it finite at δ=0 (both → 0); inner
+wheel steers more (δ=30° → 38.74°/24.27°); column order matches `STEER_DOFS`.
+
+**Behavioral impact to flag before merging:** this changes the car's turning
+dynamics, so policies trained under parallel steering won't transfer — retrain.
+The `features.py` perception model is unaffected: it uses `δ = action·MAX_STEER`
+as the *bicycle-center* angle, which remains the commanded center under Ackermann
+(the per-wheel split is downstream of it). Consider exposing a
+`steering_model: "parallel" | "ackermann"` env flag so old baselines stay
+reproducible.
+
 ## Suggested order (each ships independently, tests green between)
 
 0. **Part E (boundary pass) + checker** — annotate the `sim`/`env`/`builder`/
@@ -387,6 +517,15 @@ minimum that every code cell imports/parses), so API drift is caught.
    5. `base_env.py` + `vector_env.py` + `vision_env.py`.
 5. **Part D (grouping)** — nest the TypedDicts + do the mechanical call-site
    churn, last, once modules are stable.
+
+Interleaved with the above:
+- **Part I (`limits.py` SSOT)** — do early, alongside Part D-flat: pure
+  dedupe/import change, low-risk, and it **unblocks Part J** (which imports
+  `WHEELBASE_M`/`FRONT_TRACK_M`).
+- **Part J (Ackermann)** — after Part I and after Part B.5 (`mdp.map_action`
+  exists). Small, verified; gate behind a `steering_model` flag.
+- **Part H (search-space types)** — after Part C + Part D (needs the typed spec
+  and the parameter-passing model); it also subsumes `ablation.py` sweep/grid.
 
 **Part G is not a final step — it rides with each part.** Whenever a step changes
 the authoring API (`stages.py` signatures, `Experiment` base, `get_env_cfg`),
@@ -414,3 +553,13 @@ notebook calling the old API is incomplete.
   imports/builds a spec; every notebook parses (ideally `nbconvert --execute`
   with tiny sizes). Regenerate `deepracer_genesis_colab_output.ipynb`. Grep
   confirms no `@register_*` / `Algo(kind=` / `force=` / auto-`ablation` remain.
+- **Ackermann (Part J)**: unit-test the formula (δ=0→[0,0]; δ=+30°→[38.74°,
+  24.27°]; δ=−30°→[−24.27°,−38.74°]); confirm no NaN over the full action range;
+  behavioral change ⇒ retrain baselines (or keep `steering_model="parallel"`).
+- **Limits SSOT (Part I)**: grep shows the magic literals are gone (`0.164`,
+  bare `/ 5.0` at `deepracer_env.py:485`, `30.0`/`4.0`/`0.1` scattered); a test
+  asserts `map_action` matches the old inline formula bit-for-bit.
+- **Search space (Part H)**: `builder.sim_cfg` still emits the exact `cfg["rand"]`
+  shapes (tuple vs scalar) `domain_rand.py` expects; `Choice.sample` raises (not
+  silently wrong); `FloatRange(log=True)` rejects non-positive `lo`; DR draws are
+  still batched `(n,…)` on device.
