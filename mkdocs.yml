@@ -48,6 +48,7 @@ nav:
   - Home: index.md
   - Tutorial: tutorial.md
   - Concepts:
+      - Architecture (how it's wired): concepts/architecture.md
       - Experiments & the >> DSL: concepts/experiments.md
       - Domain randomization: concepts/domain-randomization.md
       - Renderers: concepts/renderers.md

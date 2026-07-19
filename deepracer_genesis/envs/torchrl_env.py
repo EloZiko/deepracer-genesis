@@ -11,19 +11,24 @@ Contract verified against torchrl 0.13.2 (see /tmp/torchrl_cheatsheet.md):
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import torch
-from tensordict import TensorDict
+from tensordict import TensorDict, TensorDictBase
 
 from torchrl.data import Bounded, Categorical, Composite, Unbounded
 from torchrl.envs import EnvBase
 
+if TYPE_CHECKING:
+    from .deepracer_env import DeepRacerEnv
+
 
 class TorchRLDeepRacerEnv(EnvBase):
-    def __init__(self, sim, emit_cost: bool = False):
+    def __init__(self, sim: DeepRacerEnv, emit_cost: bool = False) -> None:
         n = sim.num_envs
         device = sim.device
         super().__init__(device=device, batch_size=[n])
-        self.sim = sim
+        self.sim: DeepRacerEnv = sim
         self.emit_cost = emit_cost
 
         obs = {"state": Unbounded(shape=(n, sim.num_state_obs),
@@ -55,13 +60,13 @@ class TorchRLDeepRacerEnv(EnvBase):
         self._torchrl_native_autoreset = True
 
     # ------------------------------------------------------------------
-    def _obs_leaves(self, obs_td) -> dict:
+    def _obs_leaves(self, obs_td: TensorDictBase) -> dict[str, torch.Tensor]:
         leaves = {"state": obs_td["state"]}
         if self.sim.vision:
             leaves["camera"] = obs_td["camera"]
         return leaves
 
-    def _step(self, tensordict):
+    def _step(self, tensordict: TensorDictBase) -> TensorDict:
         obs_td, rew, dones, _extras = self.sim.step(tensordict["action"])
         info = self.sim.step_info
         n1 = (*self.batch_size, 1)
@@ -78,7 +83,7 @@ class TorchRLDeepRacerEnv(EnvBase):
             out["cost"] = self.sim.cost_buf.reshape(n1)
         return TensorDict(out, batch_size=self.batch_size, device=self.device)
 
-    def _reset(self, tensordict, **kwargs):
+    def _reset(self, tensordict: TensorDictBase | None, **kwargs) -> TensorDict:
         mask = tensordict.get("_reset", None) if tensordict is not None else None
         if mask is None:
             ids = torch.arange(self.sim.num_envs, device=self.device)
@@ -94,6 +99,6 @@ class TorchRLDeepRacerEnv(EnvBase):
              "done": z, "terminated": z.clone(), "truncated": z.clone()},
             batch_size=self.batch_size, device=self.device)
 
-    def _set_seed(self, seed):
+    def _set_seed(self, seed: int | None) -> None:
         if seed is not None:
             torch.manual_seed(seed)   # sim spawn noise uses the global RNG
