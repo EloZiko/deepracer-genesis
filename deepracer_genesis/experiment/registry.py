@@ -134,15 +134,14 @@ class Experiment:
             variant=self.variant or type(self).__name__,
         )
 
-    def run(self, *, root: str = "runs", force: bool = False) -> "EvalRecord":
-        """Train this experiment (identity-cached).
+    def run(self, *, root: str = "runs") -> "EvalRecord":
+        """Train this experiment (always from scratch — no result cache).
 
         Args:
             root: Runs directory.
-            force: Re-train even when a cached record exists.
 
         Returns:
-            The EvalRecord of the finished (or cached) run.
+            The EvalRecord of the finished run.
         """
         from .run import run as _run
-        return _run(self, root=root, force=force)
+        return _run(self, root=root)

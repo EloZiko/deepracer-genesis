@@ -1,9 +1,10 @@
 """ExperimentSpec: the frozen value the `>>` DSL builds (plan section 2).
 
-Identity is content: `id()` hashes the spec, so identical configs collide
-(intentional cache) and any field change produces a new run directory.
-`to_dict()` is a ONE-WAY dump used for the hash and the run record; nothing
-in the authoring path ever loads a spec back from a file.
+Identity is content: `id()` hashes the spec, so identical configs share a run
+directory and any field change produces a new one. Runs are never result-cached
+— re-running retrains and overwrites. `to_dict()` is a ONE-WAY dump used for the
+hash and the run record; nothing in the authoring path ever loads a spec back
+from a file.
 """
 
 from __future__ import annotations
@@ -46,8 +47,8 @@ class EnvSpec:
     # progress / lookahead observations follow the chosen direction
     random_direction: bool = False
     # reward: name of a registered reward fn (envs/rewards.py) + scale
-    # overrides. The NAME is hashed, not the function body — rename your fn
-    # after editing it (or run(force=True)).
+    # overrides. The NAME is hashed into the run-dir id (not the function body);
+    # runs always retrain, so an edited fn just retrains.
     reward_fn: str = "deepracer"
     reward_scales: dict = field(default_factory=dict)
     emits_cost: bool = False
@@ -126,8 +127,9 @@ class ExperimentSpec:
 
     def id(self) -> str:
         """Content-hash identity (sha1 of the config JSON). Two specs with the
-        same training-relevant fields share an id — and therefore a cached
-        run. Tags (ablation_group/variant) are excluded: labels, not config."""
+        same training-relevant fields share an id — and therefore a run
+        directory (they retrain and overwrite; results are not cached). Tags
+        (ablation_group/variant) are excluded: labels, not config."""
         # sha1, NOT built-in hash(): identity must be stable across processes.
         # ablation_group/variant are bookkeeping tags, not configuration —
         # the same training config keeps one id however it is tagged.

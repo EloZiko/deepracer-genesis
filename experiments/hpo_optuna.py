@@ -4,8 +4,8 @@ Trials run IN-PROCESS (Genesis scenes rebuild fine within one process), so
 this is plain Python end to end: sample a config, `run()` it, report the
 periodic deterministic evals (`eval_every_steps`) to the pruner through the
 trainer's `on_eval` hook, and let Hyperband kill bad trials mid-training.
-The study is resumable (sqlite), and the content-hash identity cache makes
-re-sampled duplicate configs free.
+The study is resumable (sqlite); every trial trains from scratch (no result
+cache) and gets its own run dir via the spec's content-hash id().
 
 Run:  uv run experiments/hpo_optuna.py
 """
@@ -42,7 +42,7 @@ def objective(trial: optuna.Trial) -> float:
         if trial.should_prune():
             raise optuna.TrialPruned()
 
-    record = run(spec, root="runs/hpo", force=True, on_eval=report)
+    record = run(spec, root="runs/hpo", on_eval=report)
     return float(record.metrics[METRIC])
 
 

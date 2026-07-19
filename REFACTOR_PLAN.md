@@ -46,30 +46,38 @@ decomposition — `mdp.py` should own producing `step_info`.
 
 ---
 
-## Part A — delete the run-cache and automatic ablation
+## Part A — delete the run-cache and automatic ablation ✅ IMPLEMENTED
 
 Do this FIRST: it removes the only reason the registries needed string
 identities, so Part C becomes trivial.
 
-Remove / simplify:
+Done:
 
-- `ExperimentSpec.id()` and the sha1 machinery (`spec.py:127-136`).
-- Hash-based `run_dir` (`spec.py:138-141`) → `f"{root}/{group}/{variant}-{seed}"`
-  (optionally a monotone suffix if you want to keep old runs; no timestamp in the
-  identity — it's just a folder name now).
-- The cache-hit short-circuit in `Trainer.fit` (`trainer.py:86-90`) and the
-  `force=` plumbing through `Trainer.fit`, `run()`, `Experiment.run`,
-  `__main__.py`.
-- Automatic ablation grid in `experiment/ablation.py` (keep a *manual* helper if
-  you still want to launch a list of variants, but each is a fresh run).
-- `EvalRecord.spec_id` field (`trainer.py:191`), the `--force` CLI flag.
-- The footgun note in `rewards.py:26-29` (moot once names aren't hashed).
+- Removed the cache-hit short-circuit in `Trainer.fit` (a run always retrains
+  and overwrites its run dir).
+- Removed all `force=` plumbing (`Trainer.fit`, `run()`, `Experiment.run`, the
+  `--force` CLI flag, `hpo_optuna.py`).
+- Removed the automatic ablation generators `sweep`/`grid`/`seeds` from
+  `experiment/ablation.py`; **kept `override()`** (used by eval/visualize/
+  rollout/HPO — build variant lists with plain comprehensions over it).
+- Refreshed the stale "cache"/"footgun" docs (`spec.py`, `rewards.py`,
+  `trainer.py`).
 
-Keep: `EvalRecord`, `spec.to_dict()`/`spec.json` dump (still useful as a run
-record and for mlflow params), tensorboard/mlflow logging.
+**Deviation from the original plan — `spec.id()` was KEPT** (plan said delete it
+and flatten `run_dir` to `{root}/{group}/{variant}-{seed}`). Rationale: the cache
+was the objectionable part, and it is gone. With no cache, `id()` is just the
+unique run-dir name — and **deleting it collides all HPO trials** into one
+`runs/hpo/<group>/<variant>-<seed>` directory (every Optuna trial shares group/
+variant/seed; only the hashed config differs). Keeping `id()` costs nothing now
+and preserves per-run dirs. `EvalRecord.spec_id` and the mlflow/onnx labels
+therefore also stay unchanged. Flip this if you'd rather flatten `run_dir` and
+name HPO trials explicitly (e.g. `variant=f"trial_{n}"`).
 
-Tests to update: `tests/test_ablation.py`, `tests/test_report.py`,
-`tests/test_experiment_spec.py` (drop `id()`/cache assertions).
+Keep: `EvalRecord`, `spec.to_dict()`/`spec.json` dump, tensorboard/mlflow logging.
+
+Tests: removed the `sweep`/`grid`/`seeds` cases from `tests/test_ablation.py`
+(the `override`/budget-sync cases stay). `test_report.py`/`test_experiment_spec.py`
+unchanged (they exercise `id()`, which was kept). Full suite: 57 passed.
 
 ---
 

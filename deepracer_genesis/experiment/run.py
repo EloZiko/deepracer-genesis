@@ -71,16 +71,14 @@ def build(target, **overrides) -> ExperimentSpec:
     return spec
 
 
-def run(target, *, root: str = "runs", build_only: bool = False,
-        force: bool = False, on_eval=None,
+def run(target, *, root: str = "runs", build_only: bool = False, on_eval=None,
         **overrides) -> "EvalRecord | ExperimentSpec":
-    """Build the spec and train it (or return the cached record).
+    """Build the spec and train it (always from scratch — no result cache).
 
     Args:
         target: anything :func:`build` accepts.
         root: runs directory root.
         build_only: return the spec instead of training.
-        force: retrain even when the identity cache has a record.
         on_eval: ``fn(frames, metrics)`` fired at every periodic eval —
             raise inside it to stop the run (HPO pruning).
         **overrides: forwarded to :func:`build`.
@@ -93,4 +91,4 @@ def run(target, *, root: str = "runs", build_only: bool = False,
         return spec
     from .builder import Builder      # heavy imports live behind this line
     from .trainer import Trainer
-    return Trainer(Builder(spec), root=root).fit(force=force, on_eval=on_eval)
+    return Trainer(Builder(spec), root=root).fit(on_eval=on_eval)

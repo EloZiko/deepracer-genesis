@@ -46,8 +46,6 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--set", action="append", default=[], metavar="KEY=VAL",
                         help="extra overrides (Experiment attrs or spec fields)")
     parser.add_argument("--root", default="runs")
-    parser.add_argument("--force", action="store_true",
-                        help="retrain even on an identity-cache hit")
     parser.add_argument("--video", action="store_true",
                         help="after training, record a spectator rollout video")
     parser.add_argument("--track", default=None,
@@ -82,7 +80,7 @@ def main(argv: list[str] | None = None) -> int:
         overrides["eval_every_steps"] = args.eval_every
 
     from .run import run
-    record = run(args.name, root=args.root, force=args.force, **overrides)
+    record = run(args.name, root=args.root, **overrides)
 
     if args.video:
         from .visualize import rollout_video

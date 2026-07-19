@@ -23,9 +23,9 @@ attributes (all (N,) tensors, driving-direction aware): d_progress, lateral,
 half_width, heading_err, v_forward, v_lateral, yaw_rate, actions,
 last_actions, dt, plus anything else on DeepRacerEnv.
 
-NOTE the spec hashes the reward's NAME + scales, not the function body —
-if you edit a registered function, rename it (or run(force=True)) so cached
-runs don't shadow the change.
+NOTE the spec hashes the reward's NAME + scales, not the function body, into
+the run-dir id(). Runs always retrain (no result cache), so editing a
+registered function just retrains — nothing stale to shadow the change.
 """
 
 from __future__ import annotations

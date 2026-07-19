@@ -1,8 +1,9 @@
 """Trainer: the algorithm-agnostic outer loop, emitting an EvalRecord.
 
-The Trainer owns collection, logging, checkpointing, periodic + final
-evaluation and the identity cache; everything algorithm-specific lives
-behind the Algorithm protocol (see deepracer_genesis.algorithms). Training-time
+The Trainer owns collection, logging, checkpointing and periodic + final
+evaluation; everything algorithm-specific lives behind the Algorithm protocol
+(see deepracer_genesis.algorithms). Runs are not result-cached — a run always
+trains from scratch and overwrites its run dir. Training-time
 episode stats come from the SIM's own logs (the autoreset machinery
 NaN-fills ("next", obs) at done rows, so collector data is unreliable for
 episode metrics); evaluation drives the raw sim deterministically.
@@ -52,15 +53,14 @@ def _flatten(d: dict, prefix: str = "") -> dict:
 class Trainer:
     """Algorithm-agnostic outer loop driving one Builder to an EvalRecord.
 
-    Owns collection, logging, checkpointing, periodic + final evaluation and
-    the identity cache; everything algorithm-specific lives behind the
-    Algorithm protocol (see the module docstring for the episode-stats and
-    observability details).
+    Owns collection, logging, checkpointing and periodic + final evaluation;
+    everything algorithm-specific lives behind the Algorithm protocol (see the
+    module docstring for the episode-stats and observability details).
 
     Args:
         builder: The Builder holding the validated spec (and, lazily, the
             sim, env, models and collector).
-        root: Runs directory; the run dir is root/<spec_id>.
+        root: Runs directory; the run dir is ``spec.run_dir(root)``.
     """
 
     def __init__(self, builder, root: str = "runs") -> None:
@@ -68,27 +68,23 @@ class Trainer:
         self.root = root
 
     # ------------------------------------------------------------------
-    def fit(self, force: bool = False, on_eval=None) -> EvalRecord:
-        """Train the spec to completion (or return the cached record).
+    def fit(self, on_eval=None) -> EvalRecord:
+        """Train the spec to completion, always from scratch.
+
+        Runs are never result-cached: re-running a config retrains and
+        overwrites its run dir (``spec.run_dir``).
 
         Args:
-            force: Re-train even when the run directory already holds an
-                eval_record.json (the identity cache).
             on_eval: Callback `on_eval(frames, metrics)`; fires after every
                 periodic evaluation (see eval_every_steps). Exceptions
                 propagate out of fit() — that is the supported way for HPO
                 pruners to stop a bad run mid-training.
 
         Returns:
-            The EvalRecord (freshly trained or loaded from cache).
+            The freshly trained EvalRecord.
         """
         spec = self.b.spec
         run_dir = spec.run_dir(self.root)
-        record_path = os.path.join(run_dir, "eval_record.json")
-        if os.path.exists(record_path) and not force:
-            print(f"[trainer] cache hit: {run_dir}")
-            return EvalRecord.load(record_path)
-
         os.makedirs(run_dir, exist_ok=True)
         with open(os.path.join(run_dir, "spec.json"), "w") as f:
             json.dump(spec.to_dict(), f, indent=2)   # run record, never loaded
