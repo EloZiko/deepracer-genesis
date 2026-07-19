@@ -37,13 +37,14 @@ from torchrl.modules import MLP, ConvNet
 
 from ..experiment.run import build
 from ..experiment.spec import ExperimentSpec
+from ..physics.limits import MAX_SPEED, MAX_STEERING_DEG, MIN_SPEED
 
 _ACT = {"elu": nn.ELU, "relu": nn.ReLU, "tanh": nn.Tanh}
 
 #: physical meaning of the normalized action channels (the env's mapping)
 ACTION_PHYSICAL = {
-    "steering": {"low": -30.0, "high": 30.0, "unit": "deg"},
-    "speed": {"low": 0.1, "high": 4.0, "unit": "m/s"},
+    "steering": {"low": -MAX_STEERING_DEG, "high": MAX_STEERING_DEG, "unit": "deg"},
+    "speed": {"low": MIN_SPEED, "high": MAX_SPEED, "unit": "m/s"},
 }
 
 def state_dim(spec: ExperimentSpec) -> int:

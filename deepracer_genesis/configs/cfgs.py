@@ -1,5 +1,7 @@
 """Default env + rsl-rl-lib 5.x train configs for DeepRacer-Genesis."""
 
+from ..physics.limits import MAX_SPEED, MAX_STEERING_DEG, MIN_SPEED
+
 
 def get_env_cfg(vision=False, track="reinvent_base", randomize=False, topdown=False):
     return {
@@ -9,9 +11,11 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False, topdown=Fa
         "episode_length_s": 30.0,
         "track": track,
         # action mapping (original DeepRacer Box([-30, 0.1], [30, 4.0]))
-        "max_steering_deg": 30.0,
-        "min_speed": 0.1,
-        "max_speed": 4.0,
+        "max_steering_deg": MAX_STEERING_DEG,
+        "min_speed": MIN_SPEED,
+        "max_speed": MAX_SPEED,
+        # "ackermann" (per-wheel inner/outer) | "parallel" (legacy, both equal)
+        "steering_model": "ackermann",
         # actuation
         "steer_kp": 25.0,
         "steer_kv": 5.0,     # heavy damping needed: low values cause front-wheel shimmy

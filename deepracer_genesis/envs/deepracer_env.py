@@ -38,6 +38,7 @@ _YIQ2RGB = torch.tensor([[1.0, 0.956, 0.621],
                          [1.0, -1.106, 1.703]])
 
 from .track import MultiTrack
+from ..physics.limits import YAW_RATE_NORM, ackermann_angles
 from ..randomization.domain_rand import randomize_physics, randomize_camera_mount
 
 WHEEL_DOFS = ["left_rear_wheel_joint", "right_rear_wheel_joint",
@@ -275,6 +276,14 @@ class DeepRacerEnv:
             torch.full((4,), tq, device=self.device),
             self.wheel_dofs)
 
+        # steering geometry: "ackermann" (per-wheel inner/outer split, the real
+        # car) or "parallel" (both hinges at the same angle, the legacy path)
+        self.steering_model = env_cfg.get("steering_model", "ackermann")
+        if self.steering_model not in ("ackermann", "parallel"):
+            raise ValueError(
+                "steering_model must be 'ackermann' or 'parallel', got "
+                f"{self.steering_model!r}")
+
         import trimesh
         wheel_mesh = trimesh.load(
             f"{__file__.rsplit('/envs/', 1)[0]}/assets/meshes/deepracer/left_rear_wheel.STL")
@@ -371,6 +380,24 @@ class DeepRacerEnv:
         return T
 
     # ------------------------------------------------------------------
+    def _steer_targets(self, delta):
+        """Per-hinge steering angles for the commanded center angle.
+
+        Args:
+            delta: ``(N, 1)`` commanded center (bicycle) steering angle in
+                radians, positive = left.
+
+        Returns:
+            ``(N, 2)`` of ``[left_hinge, right_hinge]`` angles (``STEER_DOFS``
+            order). ``parallel`` copies the center angle to both hinges;
+            ``ackermann`` applies the inner/outer split (:func:`ackermann_angles`).
+        """
+        if self.steering_model == "parallel":
+            return delta.repeat(1, 2)
+        left, right = ackermann_angles(delta)
+        return torch.cat([left, right], dim=1)
+
+    # ------------------------------------------------------------------
     def step(self, actions):
         """Advance every env by one control step (``decimation`` physics steps).
 
@@ -391,7 +418,7 @@ class DeepRacerEnv:
             self.cfg["max_speed"] - self.cfg["min_speed"])
         wheel_omega = (speed / self.wheel_radius).repeat(1, 4)
 
-        self.car.control_dofs_position(steer.repeat(1, 2), self.steer_dofs)
+        self.car.control_dofs_position(self._steer_targets(steer), self.steer_dofs)
         self.car.control_dofs_velocity(wheel_omega, self.wheel_dofs)
         for _ in range(self.cfg["decimation"]):
             self.scene.step()
@@ -482,7 +509,7 @@ class DeepRacerEnv:
             [
                 (self.v_forward / self.cfg["max_speed"]).unsqueeze(1),
                 self.v_lateral.unsqueeze(1),
-                (self.yaw_rate / 5.0).unsqueeze(1),
+                (self.yaw_rate / YAW_RATE_NORM).unsqueeze(1),
                 # signed offset in the car's own left/right (flips when
                 # driving the track reversed)
                 (self.lateral * self.dir_sign

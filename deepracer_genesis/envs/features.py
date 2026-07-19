@@ -36,15 +36,14 @@ import torch
 
 FEATURE_SETS: dict[str, type] = {}
 
-#: fixed normalization constants — never episodic statistics
-MAX_SPEED = 4.0            # m/s (the env's action mapping ceiling)
-MIN_SPEED = 0.1
-YAW_RATE_NORM = 5.0        # rad/s
-BETA_NORM = 0.5            # rad of sideslip ~= heavy slide
-CURVATURE_NORM = 2.5       # 1/m (r = 0.4 m — about the tightest sane turn)
-A_LAT_NORM = 20.0          # m/s^2
-NOMINAL_WHEELBASE = 0.164  # m — DeepRacer geometry; DR scales gains, not geometry
-MAX_STEER_RAD = math.radians(30.0)
+#: fixed normalization constants + physical caps — the single source of truth
+#: is physics/limits.py; re-exported here so `from ...features import MAX_SPEED`
+#: (etc.) keeps working. NOMINAL_WHEELBASE is now the exact URDF wheelbase
+#: (0.163974, was a rounded 0.164).
+from ..physics.limits import (  # noqa: E402
+    A_LAT_NORM, BETA_NORM, CURVATURE_NORM, MAX_SPEED, MAX_STEER_RAD, MIN_SPEED,
+    YAW_RATE_NORM, WHEELBASE_M as NOMINAL_WHEELBASE,
+)
 
 
 def register_feature_set(name: str):
