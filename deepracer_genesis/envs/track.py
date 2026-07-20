@@ -32,7 +32,24 @@ if os.path.isdir(_GENERATED):
 
 
 class Track:
-    """Vectorized (GPU) track geometry queries against the centerline."""
+    """Vectorized (GPU) track geometry queries against the centerline.
+
+    Attributes:
+        name: track identifier used to look up assets.
+        mesh_path: filesystem path to the track mesh.
+        field_path: path to the field-overlay mesh, or None.
+        obj_path: OBJ mesh path for renderers that can't read DAE.
+        device: torch device holding the geometry tensors.
+        center: centerline waypoint positions.
+        half_width: half of the track width at each waypoint.
+        n_wps: number of waypoints.
+        tangent: unit vector along the driving direction per waypoint.
+        normal: left normal of the tangent per waypoint.
+        track_yaw: heading of the centerline per waypoint.
+        cum_len: cumulative arclength at each waypoint.
+        total_len: total centerline length.
+        curvature: signed curvature per waypoint.
+    """
 
     def __init__(self, name, device):
         mesh_rel, route_rel, field_rel = TRACKS[name]
@@ -128,7 +145,27 @@ def balanced_variant_mapping(n_variants, n_envs, device):
 
 
 class MultiTrack:
-    """Batched geometry queries across per-env track variants, padded to a common length."""
+    """Batched geometry queries across per-env track variants, padded to a common length.
+
+    Attributes:
+        tracks: per-variant Track objects.
+        names: track names in variant order.
+        device: torch device holding the geometry tensors.
+        variant_idx: per-env variant assignment.
+        center: padded centerline positions per variant.
+        tangent: padded driving-direction tangents per variant.
+        normal: padded left normals per variant.
+        track_yaw: padded centerline headings per variant.
+        cum_len: padded cumulative arclengths per variant.
+        curvature: padded signed curvature per variant.
+        half_width: padded half track widths per variant.
+        n_wps_v: waypoint count per variant.
+        total_len_v: total length per variant.
+        mesh_paths: mesh path per variant.
+        obj_paths: OBJ mesh path per variant.
+        total_len_env: total track length per env.
+        n_wps_env: waypoint count per env.
+    """
 
     def __init__(self, names, num_envs, device):
         self.tracks = [Track(n, device) for n in names]

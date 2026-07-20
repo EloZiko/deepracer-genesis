@@ -14,6 +14,10 @@ class VisionDeepRacerEnv(DeepRacerEnv):
     """DeepRacer environment that exposes a rendered camera observation.
 
     Owns the rendered image buffer and publishes it as an extra observation group.
+
+    Attributes:
+        image_buf: Full-resolution rendered camera frames for all parallel envs.
+        obs_image_buf: Policy-resolution camera frames published as observations.
     """
 
     def _init_obs_buffers(self, env_cfg: dict) -> None:

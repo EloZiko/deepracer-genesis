@@ -26,6 +26,13 @@ class Car:
     """Wrap the car URDF entity together with its steering/drive controllers.
 
     Owns the DOF indices, PD gains, torque limits, wheel radius, and model.
+
+    Attributes:
+        entity: The wrapped Genesis car entity loaded from the URDF.
+        steering_model: Steering geometry mode, ``"ackermann"`` or ``"parallel"``.
+        wheel_dofs: Local DOF indices of the four drive wheels.
+        steer_dofs: Local DOF indices of the two steering hinges.
+        wheel_radius: Rear-wheel radius used to map linear speed to angular speed.
     """
 
     def __init__(self, scene, *, merge_fixed_links: bool) -> None:

@@ -113,6 +113,11 @@ class Renderer:
     """Base rendering strategy: no camera observation, optional debug view.
 
     Defines the strategy interface the env drives across its lifecycle.
+
+    Attributes:
+        has_camera: Whether this strategy produces camera observations.
+        merge_fixed_links: Whether the scene may merge fixed links.
+        spec_cam: The shared bird's-eye spectator debug camera, or None.
     """
 
     has_camera: bool = False
@@ -261,6 +266,14 @@ class _CameraRenderer(Renderer):
     """Shared base for the vision strategies.
 
     Shares the world-color remap, pixel noise, and downscaling to policy res.
+
+    Attributes:
+        has_camera: Whether this strategy produces camera observations.
+        rg_swap: Whether to swap the red/green channels of the raw frame.
+        world_color_s: Strength of the per-episode world-color remap.
+        policy_res: Resolution of the observation handed to the policy.
+        color_mat: Per-env color-remap linear transform.
+        color_bias: Per-env color-remap additive bias.
     """
 
     has_camera = True
@@ -375,6 +388,12 @@ class MadronaRenderer(_CameraRenderer):
     """Madrona batch-renderer camera obs with camera-mount randomization.
 
     Uses the ``BatchRenderer`` and jitters the attached camera's mount.
+
+    Attributes:
+        merge_fixed_links: Whether the scene may merge fixed links.
+        cam: The car-attached observation camera.
+        top_cam: The per-env top-down camera, or None.
+        cam_offset_T: The base mount transform from camera_link to the camera.
     """
 
     merge_fixed_links = True
@@ -508,6 +527,11 @@ class NyxRenderer(_CameraRenderer):
     """Nyx path-tracer sensor obs with true texture colors.
 
     Uses Nyx forward-path-tracer sensors instead of the batch renderer.
+
+    Attributes:
+        merge_fixed_links: Whether the scene may merge fixed links.
+        nyx_cam: The car-attached Nyx observation sensor.
+        nyx_top: The bird's-eye top-down Nyx sensor, or None.
     """
 
     merge_fixed_links = False   # the Nyx exporter refuses merged fixed links

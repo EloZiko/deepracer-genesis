@@ -19,7 +19,17 @@ if TYPE_CHECKING:
 
 
 class PIDLagrangian:
-    """One scalar lambda >= 0, PID-updated once per PPO iteration."""
+    """One scalar lambda >= 0, PID-updated once per PPO iteration.
+
+    Attributes:
+        budget: Cost target the controller drives the estimate toward.
+        kp: Proportional gain.
+        ki: Integral gain.
+        kd: Derivative gain.
+        integral: Accumulated (clamped) error term.
+        prev_error: Error from the previous update, for the derivative term.
+        value: Current lambda multiplier.
+    """
 
     def __init__(self, budget: float, kp: float = 0.05, ki: float = 0.0005,
                  kd: float = 0.1, lambda_init: float = 0.0):
@@ -51,7 +61,15 @@ class PIDLagrangian:
 
 @register_algorithm("ppo_lagrangian")
 class PPOLagrangian(PPO):
-    """PPO with a cost critic and a PID-controlled Lagrangian lambda."""
+    """PPO with a cost critic and a PID-controlled Lagrangian lambda.
+
+    Attributes:
+        cost_critic: Critic network estimating cumulative cost value.
+        gae_cost: GAE estimator for the cost channel.
+        pid: PID controller producing the Lagrangian multiplier.
+        optim: Optimizer over the loss module and cost critic.
+        j_cost: Smoothed estimate of mean episode cost.
+    """
 
     def setup(self, builder: "Builder") -> None:
         super().setup(builder)

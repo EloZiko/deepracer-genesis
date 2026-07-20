@@ -16,7 +16,18 @@ if TYPE_CHECKING:
 
 @register_algorithm("ppo")
 class PPO:
-    """Clipped PPO over the canonical torchrl loop (cheat-sheet section 5)."""
+    """Clipped PPO over the canonical torchrl loop (cheat-sheet section 5).
+
+    Attributes:
+        spec: Resolved experiment specification.
+        ppo_cfg: PPO hyperparameters (epochs, clipping, grad norm).
+        actor: Policy network used for collection and evaluation.
+        critic: Value network estimating state values.
+        gae: Generalized advantage estimator over collected data.
+        loss_module: Clipped PPO loss producing objective/critic/entropy terms.
+        optim: Optimizer stepping the loss module parameters.
+        buffer: Replay buffer yielding minibatches per epoch.
+    """
 
     def setup(self, builder: "Builder") -> None:
         self.spec = builder.spec

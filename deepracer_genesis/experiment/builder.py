@@ -53,6 +53,9 @@ class Builder:
 
     Args:
         spec: The experiment spec; validated on construction.
+
+    Attributes:
+        spec: The validated experiment spec driving every build.
     """
 
     def __init__(self, spec: ExperimentSpec) -> None:

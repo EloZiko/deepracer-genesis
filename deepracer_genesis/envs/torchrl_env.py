@@ -18,7 +18,16 @@ if TYPE_CHECKING:
 
 
 class TorchRLDeepRacerEnv(EnvBase):
-    """TorchRL EnvBase adapter for the batched DeepRacerEnv sim."""
+    """TorchRL EnvBase adapter for the batched DeepRacerEnv sim.
+
+    Attributes:
+        sim: The wrapped GPU-batched DeepRacer simulation.
+        emit_cost: Whether a cost signal is emitted alongside the reward.
+        observation_spec: Spec for state and optional camera observations.
+        action_spec: Spec for discrete or continuous actions.
+        full_reward_spec: Spec for reward and optional cost leaves.
+        full_done_spec: Spec for done, terminated, and truncated flags.
+    """
 
     def __init__(self, sim: DeepRacerEnv, emit_cost: bool = False) -> None:
         """Build specs from the sim and enable native autoreset."""

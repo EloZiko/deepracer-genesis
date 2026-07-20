@@ -22,6 +22,58 @@ from ..randomization.domain_rand import randomize_physics
 class DeepRacerEnv:
     """Batched DeepRacer sim owning the control/observation loop, and factory
     returning a vision or vector subclass per ``env_cfg["vision"]``.
+
+    Attributes:
+        device: Torch device the sim and all buffers live on.
+        cfg: Environment config dict driving every subsystem.
+        num_envs: Count of parallel environments.
+        num_actions: Dimensionality of the continuous action space.
+        vision: Whether this env emits camera observations.
+        action_table: Discrete steer/speed lookup table, or None for continuous.
+        dt: Control timestep (physics dt times decimation).
+        max_episode_length: Step budget before a truncation timeout.
+        track: Multi-track geometry and localization helper.
+        renderer: Injected renderer owning cameras and appearance state.
+        scene: Genesis scene handle.
+        car: The car entity wrapper.
+        steer_dofs: Steering degree-of-freedom handles mirrored from the car.
+        wheel_dofs: Wheel degree-of-freedom handles mirrored from the car.
+        wheel_radius: Wheel radius mirrored from the car.
+        steering_model: Steering kinematics model mirrored from the car.
+        episode_length_buf: Per-env step counter within the current episode.
+        reset_buf: Per-env done flags for the current step.
+        rew_buf: Per-env reward for the current step.
+        time_out_buf: Per-env truncation flags.
+        actions: Current control actions applied this step.
+        last_actions: Actions applied on the previous step.
+        progress_m: Per-env arc-length progress along the track.
+        laps: Per-env completed-lap count.
+        dir_sign: Per-env driving direction (+1 forward, -1 reversed).
+        offtrack_buf: Per-env off-track flags.
+        flipped_buf: Per-env flipped-over flags.
+        emit_cost: Whether a separate cost stream is produced.
+        cost_fn: Name of the cost term when costs are emitted.
+        cost_buf: Per-env cost for the current step (when emitting cost).
+        cost_episode_sum: Accumulated per-episode cost (when emitting cost).
+        extras: Auxiliary step outputs including per-episode logs.
+        lookahead_k: Number of lookahead waypoints in the state vector.
+        num_state_obs: Length of the state observation vector.
+        state_buf: Current per-env state observation.
+        reward_terms: Reward function producing the shaping terms.
+        reward_scales: Weights applied to each reward term.
+        episode_sums: Running per-episode sums of each reward term.
+        base_pos: Cached car position each step.
+        yaw: Cached car heading each step.
+        v_forward: Forward speed in the car frame.
+        v_lateral: Lateral speed in the car frame.
+        yaw_rate: Yaw angular velocity.
+        up_z: Body up-axis z component used for flip detection.
+        wp_idx: Nearest-waypoint index from localization.
+        lateral: Signed lateral offset from the track centerline.
+        half_width: Local track half-width.
+        heading_err: Heading error relative to the track tangent.
+        d_progress: Signed progress delta this step.
+        step_info: Pre-reset snapshot of terminal per-step quantities.
     """
 
     def __new__(cls, num_envs: int, env_cfg: dict, show_viewer: bool = False,

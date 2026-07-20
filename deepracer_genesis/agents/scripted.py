@@ -16,7 +16,13 @@ class PrivilegedAgent:
 
 
 class CenterlineFollower(PrivilegedAgent):
-    """Deterministic P-controller on lateral offset and heading error."""
+    """Deterministic P-controller on lateral offset and heading error.
+
+    Attributes:
+        k_lateral: Gain on the width-normalized lateral offset.
+        k_heading: Gain on the sine of the heading error.
+        throttle: Constant throttle command applied every step.
+    """
 
     def __init__(self, k_lateral: float = 1.1, k_heading: float = 0.9,
                  throttle: float = -0.3):
@@ -40,7 +46,12 @@ class CenterlineFollower(PrivilegedAgent):
 
 
 class NoisyExpert(CenterlineFollower):
-    """CenterlineFollower with temporally-correlated Ornstein-Uhlenbeck noise."""
+    """CenterlineFollower with temporally-correlated Ornstein-Uhlenbeck noise.
+
+    Attributes:
+        noise: Stationary standard deviation of the OU process.
+        theta: Mean-reversion rate of the OU process.
+    """
 
     def __init__(self, noise: float = 0.35, theta: float = 0.05, **kwargs):
         """Configure the OU noise on top of the follower gains.

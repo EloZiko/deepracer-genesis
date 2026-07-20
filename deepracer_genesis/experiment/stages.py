@@ -48,6 +48,9 @@ DEFAULT_PID = (0.05, 0.0005, 0.1)
 class Stage:
     """One slice of the spec: subclasses implement `apply(spec) -> spec` and set
     KIND; `>>` composes stages into a Pipeline.
+
+    Attributes:
+        KIND: Category tag used by the pipeline to validate stage ordering/counts.
     """
 
     KIND: str = "stage"
@@ -62,6 +65,9 @@ class Stage:
 class Pipeline:
     """An ordered chain of Stages, composed with `>>`; `build()` folds and validates.
     Build-time only — nothing here runs per-step.
+
+    Attributes:
+        stages: Ordered list of Stages to fold into the spec.
     """
 
     def __init__(self, stages):
@@ -106,7 +112,18 @@ class Pipeline:
 # Environment stages (source; must be first)
 @dataclass(frozen=True)
 class FeatureEnvironment(Stage):
-    """State-vector env: no rendering; the vector is picked by feature_set."""
+    """State-vector env: no rendering; the vector is picked by feature_set.
+
+    Attributes:
+        feature_set: Named observation vector to build.
+        feature_params: Extra parameters for the chosen feature set.
+        lookahead_k: Number of upcoming waypoints exposed to the agent.
+        tracks: Track names to train on; more than one trains heterogeneously.
+        num_envs: Parallel simulation instances.
+        random_start: Whether episodes begin at a random track position.
+        random_direction: Whether each episode randomizes CW/CCW travel.
+        KIND: Stage category tag (environment).
+    """
 
     feature_set: str = "classic"        # or "perception" (see envs/features.py)
     feature_params: Optional[dict] = None
@@ -132,7 +149,21 @@ class FeatureEnvironment(Stage):
 
 @dataclass(frozen=True)
 class CameraEnvironment(Stage):
-    """Front-RGB-camera env; >1 `tracks` trains heterogeneously (Madrona only)."""
+    """Front-RGB-camera env; >1 `tracks` trains heterogeneously (Madrona only).
+
+    Attributes:
+        render: Rendering backend used to produce the camera image.
+        resolution: Camera image width and height in pixels.
+        fov: Horizontal field of view in degrees.
+        lookahead_k: Number of upcoming waypoints exposed to the agent.
+        feature_set: Named auxiliary state vector accompanying the image.
+        feature_params: Extra parameters for the chosen feature set.
+        tracks: Track names to train on; more than one trains heterogeneously.
+        num_envs: Parallel simulation instances.
+        random_start: Whether episodes begin at a random track position.
+        random_direction: Whether each episode randomizes CW/CCW travel.
+        KIND: Stage category tag (environment).
+    """
 
     render: str = "madrona"
     resolution: tuple[int, int] = (160, 120)
@@ -162,7 +193,12 @@ class CameraEnvironment(Stage):
 
 @dataclass(frozen=True)
 class SafeRLFeatureEnvironment(FeatureEnvironment):
-    """Feature env that also emits a cost signal (=> PPO-Lagrangian inferred)."""
+    """Feature env that also emits a cost signal (=> PPO-Lagrangian inferred).
+
+    Attributes:
+        cost: Named cost function to accumulate per step.
+        budget: Per-episode cost budget for the safety constraint.
+    """
     cost: str = "offtrack"
     budget: float = 25.0
 
@@ -174,7 +210,12 @@ class SafeRLFeatureEnvironment(FeatureEnvironment):
 
 @dataclass(frozen=True)
 class SafeRLCameraEnvironment(CameraEnvironment):
-    """Camera env that also emits a cost signal (=> PPO-Lagrangian inferred)."""
+    """Camera env that also emits a cost signal (=> PPO-Lagrangian inferred).
+
+    Attributes:
+        cost: Named cost function to accumulate per step.
+        budget: Per-episode cost budget for the safety constraint.
+    """
     cost: str = "offtrack"
     budget: float = 25.0
 
@@ -211,6 +252,11 @@ def discrete_grid(steer_bins: int = 5, speed_bins: int = 2,
 class RewardShaping(Stage):
     """Set the reward callable (``None`` keeps built-in ``deepracer``) and/or
     override entries of the default reward_scales dict.
+
+    Attributes:
+        fn: Custom reward callable, or None to keep the built-in reward.
+        scales: Overrides merged into the default reward-scales dict.
+        KIND: Stage category tag (reward).
     """
 
     fn: Optional["RewardFn"] = None
@@ -228,7 +274,12 @@ class RewardShaping(Stage):
 @dataclass(frozen=True)
 class DomainRandomizationTrackAppearance(Stage):
     """World-appearance DR: each env draws its own per-episode color remap of the
-    rendered observation; `strength` in [0, 1] scales all ranges."""
+    rendered observation; `strength` in [0, 1] scales all ranges.
+
+    Attributes:
+        strength: Magnitude in [0, 1] scaling all color-remap ranges.
+        KIND: Stage category tag (obs_dr_appearance).
+    """
 
     strength: float = 0.6
 
@@ -242,6 +293,20 @@ class DomainRandomizationTrackAppearance(Stage):
 
 @dataclass(frozen=True)
 class DomainRandomizationCamera(Stage):
+    """Image-augmentation DR applied to the rendered camera observation.
+
+    Attributes:
+        brightness: Random brightness scale range, or None to skip.
+        contrast: Random contrast scale range, or None to skip.
+        saturation: Random saturation scale range, or None to skip.
+        hue: Maximum random hue shift.
+        blur: Blur augmentation strength.
+        cutout: Probability of a cutout patch per frame.
+        noise: Additive Gaussian noise sigma.
+        camera_jitter: Enable/override per-episode camera pose jitter.
+        KIND: Stage category tag (obs_dr_camera).
+    """
+
     brightness: Optional[tuple[float, float]] = None
     contrast: Optional[tuple[float, float]] = None
     saturation: Optional[tuple[float, float]] = None
@@ -274,6 +339,17 @@ class DomainRandomizationCamera(Stage):
 
 @dataclass(frozen=True)
 class DomainRandomizationPhysics(Stage):
+    """Physics DR: per-env randomization of friction, mass, and actuator gains.
+
+    Attributes:
+        friction: Friction scale range.
+        mass: Per-link mass shift magnitude in kg.
+        com: Per-link center-of-mass shift magnitude in meters.
+        gains: Steering/wheel gain scale range.
+        armature: Joint armature value range.
+        KIND: Stage category tag (obs_dr_physics).
+    """
+
     friction: tuple[float, float] = (0.6, 1.4)
     mass: float = 0.2              # +- kg per link
     com: float = 0.01              # +- m per link
@@ -298,6 +374,16 @@ class DomainRandomizationPhysics(Stage):
 # Encoder stage
 @dataclass(frozen=True)
 class FrozenCNNToFeatureVector(Stage):
+    """Encoder stage: a frozen CNN checkpoint maps images to a feature vector.
+
+    Attributes:
+        checkpoint: Path to the frozen CNN weights, or empty for none.
+        output_dim: Size of the produced feature vector.
+        layer: Named layer to read features from, or None for the default.
+        out_key: Observation key under which the encoded vector is stored.
+        KIND: Stage category tag (encoder).
+    """
+
     checkpoint: str = ""
     output_dim: int = 256
     layer: Optional[str] = None
@@ -316,6 +402,17 @@ class FrozenCNNToFeatureVector(Stage):
 # Policy stages (exactly one)
 @dataclass(frozen=True)
 class AsymmetricCameraPolicy(Stage):
+    """Actor-critic policy where the critic sees extra keys beyond the camera.
+
+    Attributes:
+        actor_keys: Observation keys fed to the actor network.
+        critic_keys: Observation keys fed to the critic network.
+        cnn: CNN configuration override, or None for the default.
+        mlp: MLP configuration override, or None for the default.
+        actions: Discrete (steer, speed) pairs, or None for continuous control.
+        KIND: Stage category tag (policy).
+    """
+
     actor_keys: tuple[str, ...] = ("camera",)
     critic_keys: tuple[str, ...] = ("camera", "state")
     cnn: Optional[dict] = None
@@ -334,6 +431,15 @@ class AsymmetricCameraPolicy(Stage):
 
 @dataclass(frozen=True)
 class VectorPolicy(Stage):
+    """Shared-encoder MLP policy over state vectors (actor and critic share keys).
+
+    Attributes:
+        keys: Observation keys fed to both actor and critic.
+        mlp: MLP configuration override, or None for the default.
+        actions: Discrete (steer, speed) pairs, or None for continuous control.
+        KIND: Stage category tag (policy).
+    """
+
     keys: tuple[str, ...] = ("state",)
     mlp: Optional[dict] = None
     actions: Optional[tuple] = None       # (steer, speed) pairs => discrete
@@ -350,6 +456,16 @@ class VectorPolicy(Stage):
 
 @dataclass(frozen=True)
 class AsymmetricVectorPolicy(Stage):
+    """MLP policy over state vectors with distinct actor and critic key sets.
+
+    Attributes:
+        actor_keys: Observation keys fed to the actor network.
+        critic_keys: Observation keys fed to the critic network.
+        mlp: MLP configuration override, or None for the default.
+        actions: Discrete (steer, speed) pairs, or None for continuous control.
+        KIND: Stage category tag (policy).
+    """
+
     actor_keys: tuple[str, ...] = ("state",)
     critic_keys: tuple[str, ...] = ("state",)
     mlp: Optional[dict] = None
@@ -369,6 +485,15 @@ class AsymmetricVectorPolicy(Stage):
 # Action DR stage
 @dataclass(frozen=True)
 class DomainRandomizationActions(Stage):
+    """Action DR: adds noise and latency to the agent's commanded actions.
+
+    Attributes:
+        steer_noise: Standard deviation of steering noise.
+        speed_noise: Standard deviation of speed noise.
+        delay_steps: Number of steps to delay applied actions.
+        KIND: Stage category tag (action_dr).
+    """
+
     steer_noise: float = 0.0
     speed_noise: float = 0.0
     delay_steps: int = 0
@@ -386,6 +511,21 @@ class DomainRandomizationActions(Stage):
 # Algorithm stages (optional terminal; usually inferred)
 @dataclass(frozen=True)
 class PPO(Stage):
+    """Algorithm stage configuring standard PPO hyperparameters.
+
+    Attributes:
+        clip: PPO surrogate clipping range.
+        epochs: Optimization epochs per iteration.
+        minibatches: Minibatches per epoch.
+        gamma: Reward discount factor.
+        gae_lambda: GAE smoothing coefficient.
+        lr: Optimizer learning rate.
+        entropy_coef: Entropy bonus coefficient.
+        max_grad_norm: Gradient-norm clipping threshold.
+        horizon: Rollout steps per env per iteration.
+        KIND: Stage category tag (algorithm).
+    """
+
     clip: float = 0.2
     epochs: int = 5
     minibatches: int = 4
@@ -413,6 +553,15 @@ class PPO(Stage):
 
 @dataclass(frozen=True)
 class PPOLagrangian(PPO):
+    """PPO with a Lagrangian safety constraint driven by a PID multiplier.
+
+    Attributes:
+        budget: Per-episode cost budget, or None to take from the env stage.
+        pid: PID gains updating the Lagrange multiplier.
+        cost_gae_lambda: GAE smoothing coefficient for the cost advantage.
+        lambda_init: Initial Lagrange multiplier value.
+    """
+
     budget: Optional[float] = None          # None => taken from the env stage
     pid: tuple[float, float, float] = DEFAULT_PID
     cost_gae_lambda: float = 0.95
@@ -432,7 +581,12 @@ class PPOLagrangian(PPO):
 @dataclass(frozen=True)
 class Algo(PPO):
     """Terminal stage selecting a CUSTOM registered algorithm by kind; PPO fields
-    are generic on-policy knobs and `params` carries algorithm-specific args."""
+    are generic on-policy knobs and `params` carries algorithm-specific args.
+
+    Attributes:
+        kind: Registered algorithm identifier to instantiate.
+        params: Algorithm-specific arguments passed through.
+    """
 
     kind: str = "ppo"
     params: Optional[dict] = None

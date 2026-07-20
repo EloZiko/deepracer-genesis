@@ -42,7 +42,14 @@ def state_layout(spec: ExperimentSpec) -> str:
 
 
 class _ExportActor(nn.Module):
-    """Actor rebuilt as a plain nn.Module with a deterministic head."""
+    """Actor rebuilt as a plain nn.Module with a deterministic head.
+
+    Attributes:
+        keys: input observation keys in forward order.
+        cnn: optional camera feature extractor.
+        mlp: policy head mapping features to outputs.
+        discrete: whether the head emits logits versus a continuous action.
+    """
 
     def __init__(self, spec: ExperimentSpec, cnn: Optional[ConvNet], mlp: MLP):
         super().__init__()

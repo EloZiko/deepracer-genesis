@@ -38,6 +38,13 @@ def experiment(fn=None, *, name: str | None = None):
 class Experiment:
     """Author an experiment as a single file: hyperparameters as class
     attributes, the pipeline in pipeline(), and `MyExp().run()` to execute.
+
+    Attributes:
+        seed: Random seed for reproducibility.
+        total_env_steps: Number of environment steps to train for.
+        eval_every_steps: Evaluation interval in steps (0 disables periodic eval).
+        ablation_group: Optional grouping label for ablation studies.
+        variant: Optional variant label, defaulting to the subclass name.
     """
 
     # ---- standard training configuration (overridable per subclass) ----

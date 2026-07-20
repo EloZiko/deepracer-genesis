@@ -69,6 +69,11 @@ class FeatureSet:
     """One feature-vector recipe bound to a live env.
 
     Subclasses implement :meth:`compute` and clear history in :meth:`reset`.
+
+    Attributes:
+        env: the live env the features are read from.
+        params: set-specific configuration for this recipe.
+        cnn_target_slice: channel range a deployed CNN must predict, or None.
     """
 
     def __init__(self, env, params: dict):
@@ -101,7 +106,12 @@ class FeatureSet:
 
 @register_feature_set("classic")
 class ClassicFeatures(FeatureSet):
-    """The original vector: pose/velocity + body-frame look-ahead waypoints."""
+    """The original vector: pose/velocity + body-frame look-ahead waypoints.
+
+    Attributes:
+        env: the live env the features are read from.
+        params: set-specific configuration for this recipe.
+    """
 
     @property
     def dim(self) -> int:
@@ -151,6 +161,14 @@ class PerceptionFeatures(FeatureSet):
     """CNN targets + action-conditioned error channels.
 
     Optional params: ``horizons``, ``k_prev``, ``k_speed``, ``k_steer``.
+
+    Attributes:
+        env: the live env the features are read from.
+        params: set-specific configuration for this recipe.
+        horizons: look-ahead distances (m) for curvature target channels.
+        k_prev: number of previous actions kept in the history.
+        k_speed: number of past speed-error samples kept.
+        k_steer: number of past steer- and yaw-error samples kept.
     """
 
     def __init__(self, env, params: dict):

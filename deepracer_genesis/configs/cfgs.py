@@ -1,5 +1,7 @@
 """Default env + rsl-rl-lib 5.x train configs for DeepRacer-Genesis."""
 
+from dataclasses import asdict, dataclass, field
+
 from ..physics.limits import MAX_SPEED, MAX_STEERING_DEG, MIN_SPEED
 from .schema import EnvConfig
 
@@ -101,7 +103,63 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
     }
 
 
-def get_train_cfg(vision=False):
+@dataclass(frozen=True)
+class AlgoConfig:
+    """PPO hyperparameters for the rsl-rl runner (build-time).
+
+    Attributes:
+        class_name: Algorithm class the runner instantiates.
+        num_learning_epochs: Optimization passes over each rollout batch.
+        num_mini_batches: Minibatches the rollout is split into per epoch.
+        clip_param: PPO surrogate-objective clipping range.
+        gamma: Reward discount factor.
+        lam: GAE bias-variance trade-off coefficient.
+        value_loss_coef: Weight on the critic value loss.
+        entropy_coef: Weight on the entropy bonus.
+        learning_rate: Optimizer step size.
+        max_grad_norm: Gradient-norm clipping threshold.
+        schedule: Learning-rate schedule strategy.
+        desired_kl: Target KL divergence for the adaptive schedule.
+    """
+
+    class_name: str = "PPO"
+    num_learning_epochs: int = 5
+    num_mini_batches: int = 4
+    clip_param: float = 0.2
+    gamma: float = 0.99
+    lam: float = 0.95
+    value_loss_coef: float = 1.0
+    entropy_coef: float = 0.01
+    learning_rate: float = 3.0e-4
+    max_grad_norm: float = 1.0
+    schedule: str = "adaptive"
+    desired_kl: float = 0.01
+
+
+@dataclass(frozen=True)
+class TrainConfig:
+    """rsl-rl OnPolicyRunner config; ``asdict()`` yields the dict it consumes.
+
+    Attributes:
+        obs_groups: Observation groups routed to actor and critic.
+        actor: Actor network specification.
+        critic: Critic network specification.
+        algorithm: PPO hyperparameters.
+        num_steps_per_env: Rollout length collected per environment.
+        save_interval: Iterations between checkpoint saves.
+        logger: Logging backend to use.
+    """
+
+    obs_groups: dict
+    actor: dict
+    critic: dict
+    algorithm: AlgoConfig = field(default_factory=AlgoConfig)
+    num_steps_per_env: int = 24
+    save_interval: int = 100
+    logger: str = "tensorboard"
+
+
+def get_train_cfg(vision=False) -> dict:
     if vision:
         obs_groups = {"actor": ["camera"], "critic": ["state", "camera"]}
         actor = {
@@ -149,28 +207,7 @@ def get_train_cfg(vision=False):
         }
         share_cnn = False
 
-    cfg = {
-        "num_steps_per_env": 24,
-        "save_interval": 100,
-        "obs_groups": obs_groups,
-        "logger": "tensorboard",
-        "algorithm": {
-            "class_name": "PPO",
-            "num_learning_epochs": 5,
-            "num_mini_batches": 4,
-            "clip_param": 0.2,
-            "gamma": 0.99,
-            "lam": 0.95,
-            "value_loss_coef": 1.0,
-            "entropy_coef": 0.01,
-            "learning_rate": 3.0e-4,
-            "max_grad_norm": 1.0,
-            "schedule": "adaptive",
-            "desired_kl": 0.01,
-        },
-        "actor": actor,
-        "critic": critic,
-    }
+    cfg = asdict(TrainConfig(obs_groups=obs_groups, actor=actor, critic=critic))
     if share_cnn:
         cfg["algorithm"]["share_cnn_encoders"] = True
     return cfg

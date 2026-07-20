@@ -44,6 +44,10 @@ def _flatten(d: dict, prefix: str = "") -> dict:
 class Trainer:
     """Algorithm-agnostic outer loop driving one Builder to an EvalRecord.
 
+    Attributes:
+        b: Builder holding the validated spec and lazily-built sim/env/models.
+        root: Runs directory under which each run's directory is created.
+
     Args:
         builder: The Builder holding the validated spec (and, lazily, the
             sim, env, models and collector).

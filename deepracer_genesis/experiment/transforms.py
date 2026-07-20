@@ -21,7 +21,10 @@ _YIQ2RGB = torch.tensor([[1.0, 0.956, 0.621],
 class ImageAug(Transform):
     """Per-step image-space DR on a float [0,1] (*B, C, H, W) key.
 
-    Params (brightness/contrast/saturation/hue/blur/cutout/noise) resample per step per sub-env.
+    Params resample per step per sub-env across brightness/contrast/saturation/hue/blur/cutout/noise.
+
+    Attributes:
+        aug: augmentation config mapping each effect name to its sampling range or scale.
     """
 
     def __init__(self, aug: dict, in_keys=("camera",), out_keys=None):
@@ -113,7 +116,12 @@ class ImageAug(Transform):
 class FrozenEncoder(Transform):
     """Run a frozen module over an obs key, write a new key, drop the raw one.
 
-    The raw camera key is deleted from tensordict and spec so downstream never carries pixels.
+    The raw camera key is dropped from tensordict and spec so downstream never carries pixels.
+
+    Attributes:
+        encoder: frozen module applied to each image to produce embeddings.
+        embed_dim: length of the embedding vector written per element.
+        del_keys: whether the raw in_keys are removed after encoding.
     """
 
     def __init__(self, encoder, embed_dim: int, in_keys=("camera",),
@@ -168,6 +176,12 @@ class ActionNoiseDelay(Transform):
     """Actuation DR: k-step command latency, then per-channel gaussian noise.
 
     Runs on the inverse action path; the ring buffer holds the last k commands, zeroed on reset.
+
+    Attributes:
+        steer_noise: gaussian noise scale applied to the steering channel.
+        speed_noise: gaussian noise scale applied to the speed channel.
+        delay_steps: number of steps commands are delayed before taking effect.
+        buf: per-env ring buffer of recent commands, present only when delay is enabled.
     """
 
     def __init__(self, n_envs: int, steer_noise=0.0, speed_noise=0.0,

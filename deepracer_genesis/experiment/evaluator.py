@@ -17,7 +17,19 @@ if TYPE_CHECKING:
 
 @dataclass
 class EvalRecord:
-    """One run's provenance and measurements; the Reporter's input unit."""
+    """One run's provenance and measurements; the Reporter's input unit.
+
+    Attributes:
+        spec_id: Identifier of the experiment spec that produced this run.
+        spec: One-way dump of the ExperimentSpec.
+        seed: Random seed used for the run.
+        ablation_group: Ablation group label, if part of an ablation study.
+        variant: Variant name within the ablation group, if any.
+        metrics: Final scalar evaluation metrics.
+        train: Training-side stats (steps_per_s, wall_clock_s, ...).
+        eval_history: Periodic evals as [{frames, **metrics}] entries.
+        created_at: Timestamp string set when the record is saved.
+    """
 
     spec_id: str
     spec: dict                      # one-way dump of the ExperimentSpec

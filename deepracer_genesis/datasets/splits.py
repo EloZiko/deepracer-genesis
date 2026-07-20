@@ -15,6 +15,17 @@ PRINTED_TRACKS = ("reinvent_base", "Oval_track")
 
 @dataclass(frozen=True)
 class TrackDataset:
+    """Deterministic train/test split over track names with a by-name holdout.
+
+    Attributes:
+        names: track names to split; defaults to every registered track.
+        holdout: tracks excluded from train/test (final-eval only).
+        test_fraction: share of the non-holdout pool assigned to test.
+        seed: seed making the split order reproducible.
+        train: tracks selected for training.
+        test: tracks selected for testing.
+    """
+
     names: Optional[Sequence[str]] = None       # default: every registered track
     holdout: Sequence[str] = PRINTED_TRACKS
     test_fraction: float = 0.2
