@@ -1,23 +1,18 @@
-"""Per-env domain randomization, following the Genesis DR best-practices guide
-(user_guide/.../domain_randomization.html): friction ratio, mass shift, COM
-shift, controller gains (kp/kv) and motor armature, all batched per env.
+"""Per-env physics domain randomization: friction, mass, COM, gains, armature.
 
-Requires `batch_dofs_info=True, batch_links_info=True` in RigidOptions (the
-env enables both when `randomize` is on). Applied at episode reset via
-`envs_idx` so each episode draws fresh physics. Visual DR lives with the
-renderer strategy (`envs/renderers.py`): camera-mount jitter on the Madrona
-renderer, world-color remap on the vision renderers. Per-env lighting is not
-supported by the current BatchRenderer; global lighting is fixed at build.
+Applied at episode reset via `envs_idx`; requires batched dofs/links info.
 """
 
 import torch
 
 
 def _u(lo, hi, shape, device):
+    """Sample a uniform tensor of `shape` in `[lo, hi)` on `device`."""
     return lo + (hi - lo) * torch.rand(shape, device=device)
 
 
 def randomize_physics(env, env_ids):
+    """Draw fresh per-env physics for `env_ids` at reset."""
     cfg = env.cfg["rand"]
     n = len(env_ids)
     car = env.car
@@ -40,13 +35,13 @@ def randomize_physics(env, env_ids):
 
     # ---- dofs: controller gains + motor armature (per env, batched) ----
     lo, hi = cfg["steer_kp_scale"]
-    car.set_dofs_kp(env.cfg["steer_kp"] * _u(lo, hi, (n, 2), env.device),
+    car.set_dofs_kp(env.cfg["car"]["steer_kp"] * _u(lo, hi, (n, 2), env.device),
                     env.steer_dofs, envs_idx=env_ids)
-    car.set_dofs_kv(env.cfg["steer_kv"] * _u(lo, hi, (n, 2), env.device),
+    car.set_dofs_kv(env.cfg["car"]["steer_kv"] * _u(lo, hi, (n, 2), env.device),
                     env.steer_dofs, envs_idx=env_ids)
 
     lo, hi = cfg["wheel_kv_scale"]
-    car.set_dofs_kv(env.cfg["wheel_kv"] * _u(lo, hi, (n, 4), env.device),
+    car.set_dofs_kv(env.cfg["car"]["wheel_kv"] * _u(lo, hi, (n, 4), env.device),
                     env.wheel_dofs, envs_idx=env_ids)
 
     lo, hi = cfg.get("armature_range", (0.0, 0.0))

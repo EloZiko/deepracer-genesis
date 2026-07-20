@@ -48,7 +48,7 @@ def run_single(n_envs, mode, steps, warmup, repeats):
     track = m.get("tracks", "reinvent_base")
     env_cfg = get_env_cfg(vision=m["vision"], randomize=m.get("randomize", False), track=track)
     if m.get("world_color"):
-        env_cfg["appearance"] = {"world_color": m["world_color"]}
+        env_cfg["vision"]["appearance"] = {"world_color": m["world_color"]}
     env = DeepRacerEnv(num_envs=n_envs, env_cfg=env_cfg)
 
     runner = None

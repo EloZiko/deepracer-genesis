@@ -1,8 +1,5 @@
-"""Spec override helper: derive a variant of a frozen ExperimentSpec by dotted
-path (used by evaluation, visualization, dataset rollout and HPO to inject a
-single field). Automatic ablation grids/sweeps were removed — every run trains
-from scratch; build any variant list you want with plain comprehensions over
-``override``."""
+"""Derive a variant of a frozen ExperimentSpec by dotted-path field override.
+Build variant lists with plain comprehensions over ``override``."""
 
 from __future__ import annotations
 
@@ -14,10 +11,7 @@ from .spec import ExperimentSpec, SpecError
 def override(spec: ExperimentSpec, path: str, value) -> ExperimentSpec:
     """Replace one field of a frozen spec along a dotted path.
 
-    dataclasses.replace along a dotted path, e.g. 'env.num_envs' or
-    'algorithm.lagrangian.budget' (dict leaves are copied, not mutated).
-    Coupled fields stay in sync: the cost budget lives on the env AND in the
-    inferred lagrangian config — changing either updates both.
+    Coupled cost-budget fields on env and lagrangian stay in sync.
 
     Args:
         spec: The frozen ExperimentSpec to derive from.

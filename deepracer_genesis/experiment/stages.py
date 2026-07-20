@@ -1,8 +1,4 @@
-"""The `>>` builder DSL (plan section 1).
-
-`>>` is `__rshift__`: each Stage folds itself into the spec via
-`apply(spec) -> spec`; composition builds a Pipeline; `Pipeline.build()`
-left-folds the stages over an empty spec, infers the algorithm, validates.
+"""The `>>` builder DSL: Stages fold into a spec, `Pipeline.build()` validates.
 Build-time only — nothing here runs per-step.
 """
 
@@ -50,10 +46,8 @@ DEFAULT_PID = (0.05, 0.0005, 0.1)
 
 # ----------------------------------------------------------------------
 class Stage:
-    """One slice of the spec.
-
-    Subclasses implement `apply(spec) -> spec` (a pure fold step over the
-    frozen spec) and set KIND; `>>` composes stages into a Pipeline.
+    """One slice of the spec: subclasses implement `apply(spec) -> spec` and set
+    KIND; `>>` composes stages into a Pipeline.
     """
 
     KIND: str = "stage"
@@ -66,11 +60,7 @@ class Stage:
 
 
 class Pipeline:
-    """An ordered chain of Stages, composed with `>>`.
-
-    build() checks the structure (Environment first, exactly one Policy,
-    at-most-one limits per kind), left-folds the stages over an empty spec,
-    applies keyword overrides, infers the algorithm and validates.
+    """An ordered chain of Stages, composed with `>>`; `build()` folds and validates.
     Build-time only — nothing here runs per-step.
     """
 
@@ -142,8 +132,7 @@ class FeatureEnvironment(Stage):
 
 @dataclass(frozen=True)
 class CameraEnvironment(Stage):
-    """Front-RGB-camera env; `tracks` with >1 entry trains heterogeneously
-    (each parallel env simulates + renders its own track; Madrona only)."""
+    """Front-RGB-camera env; >1 `tracks` trains heterogeneously (Madrona only)."""
 
     render: str = "madrona"
     resolution: tuple[int, int] = (160, 120)
@@ -197,10 +186,7 @@ class SafeRLCameraEnvironment(CameraEnvironment):
 
 def discrete_grid(steer_bins: int = 5, speed_bins: int = 2,
                   max_speed_frac: float = 1.0) -> tuple:
-    """The classic DeepRacer action list: a (steer x speed) grid.
-
-    Pairs are in normalized [-1, 1] units — pass the result to any policy
-    stage's `actions=` to make the policy discrete.
+    """Build the classic DeepRacer (steer x speed) action grid in [-1, 1] units.
 
     Args:
         steer_bins: Number of steering values, evenly spaced over [-1, 1].
@@ -223,12 +209,8 @@ def discrete_grid(steer_bins: int = 5, speed_bins: int = 2,
 # Reward stage
 @dataclass(frozen=True)
 class RewardShaping(Stage):
-    """Set the reward fn and/or override term scales.
-
-    `fn` is a reward CALLABLE (``env -> {term: (N,) tensor}``; write it in
-    plain torch over the batched env — see :mod:`deepracer_genesis.envs.rewards`).
-    ``None`` keeps the built-in ``deepracer`` reward. `scales` overrides entries
-    of the default reward_scales dict.
+    """Set the reward callable (``None`` keeps built-in ``deepracer``) and/or
+    override entries of the default reward_scales dict.
     """
 
     fn: Optional["RewardFn"] = None
@@ -245,17 +227,8 @@ class RewardShaping(Stage):
 # Observation DR stages
 @dataclass(frozen=True)
 class DomainRandomizationTrackAppearance(Stage):
-    """World-appearance DR: every episode, every env draws its own color
-    remap (hue rotation + saturation/value scaling + channel mixing + bias)
-    applied to the rendered observation — each agent trains in a
-    differently-colored world, coherent within the episode. `strength` in
-    [0, 1] scales all ranges (1.0 = hues rotate the full circle).
-
-    Renderer-agnostic and ~free at runtime. True per-env scene TEXTURES are
-    not possible under the Madrona batch renderer today: genesis 1.2.1 never
-    passes per-env variant visibility (vgeom.active_envs_mask) to it, so
-    heterogeneous texture-variant morphs z-fight instead of dispatching
-    (randomization/appearance.py bakes such variants for rasterizer use)."""
+    """World-appearance DR: each env draws its own per-episode color remap of the
+    rendered observation; `strength` in [0, 1] scales all ranges."""
 
     strength: float = 0.6
 
@@ -458,14 +431,8 @@ class PPOLagrangian(PPO):
 
 @dataclass(frozen=True)
 class Algo(PPO):
-    """Terminal stage selecting a CUSTOM registered algorithm by kind.
-
-    The PPO hyperparameters double as generic on-policy knobs (horizon,
-    minibatches, lr, ...); `params` carries anything algorithm-specific.
-    Register the implementation with
-    `@register_algorithm("my_kind")` in deepracer_genesis.algorithms —
-    see the Algorithm protocol there for the full contract.
-    """
+    """Terminal stage selecting a CUSTOM registered algorithm by kind; PPO fields
+    are generic on-policy knobs and `params` carries algorithm-specific args."""
 
     kind: str = "ppo"
     params: Optional[dict] = None

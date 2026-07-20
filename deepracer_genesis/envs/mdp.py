@@ -1,12 +1,6 @@
-"""The RL interface over the raw simulator: the reward (R) and termination (T)
-of the MDP.
+"""Define the MDP interface over the raw simulator: reward (R) and termination (T).
 
-Each function takes the live env, reads its per-step kinematic/track-frame
-attributes, and writes its per-env buffers (``rew_buf``, ``reset_buf``,
-``offtrack_buf``, …). Pulling this out of the env body keeps the "what counts
-as reward / a crash / a timeout" logic readable on its own; the actual reward
-*terms* live in :mod:`deepracer_genesis.envs.rewards`, the predicates in
-:mod:`deepracer_genesis.envs.rules`.
+Each function reads the live env's per-step attributes and writes its per-env buffers.
 """
 
 from __future__ import annotations
@@ -20,8 +14,18 @@ if TYPE_CHECKING:
 
 
 def compute_reward(env: "DeepRacerEnv") -> None:
-    """Weighted sum of the reward fn's named terms into ``env.rew_buf`` (and the
-    per-term episode sums). Raises if a scale references a term the fn omits."""
+    """Accumulate the weighted reward terms into the env's reward buffer.
+
+    Zeroes ``env.rew_buf``, then adds each ``scale * terms[name]`` into it and ``episode_sums``.
+
+    Args:
+        env: The live DeepRacer env whose ``reward_terms`` callable, per-term
+            ``reward_scales``, ``rew_buf``, and ``episode_sums`` are read/written.
+
+    Raises:
+        KeyError: If ``reward_scales`` references a term name the reward fn did
+            not produce.
+    """
     terms = env.reward_terms(env)          # named per-step terms (rewards.py)
     env.rew_buf.zero_()
     for name, scale in env.reward_scales.items():
@@ -36,16 +40,18 @@ def compute_reward(env: "DeepRacerEnv") -> None:
 
 
 def check_termination(env: "DeepRacerEnv") -> None:
-    """Set the termination/cost buffers for the step just taken.
+    """Set the termination (and, under the CMDP framing, cost) buffers for the step.
 
-    Writes ``offtrack_buf`` / ``flipped_buf`` / ``time_out_buf`` / ``reset_buf``.
-    In the plain-reward path off-track|flip add ``crash_penalty`` and terminate;
-    under the CMDP framing (``emit_cost``) off-track becomes a COST, only
-    unrecoverable states (flip, or far off the road) terminate, and the cost
-    stream is accumulated for the Lagrangian.
+    Evaluates the off-track and flipped predicates and writes the per-env termination buffers.
+
+    Args:
+        env: The live DeepRacer env; reads ``lateral``, ``half_width``, ``up_z``,
+            ``v_forward``, ``episode_length_buf``, ``max_episode_length``,
+            ``emit_cost``, ``cost_fn``, and ``cfg``, and writes the termination
+            (and cost) buffers listed above.
     """
     cfg = env.cfg
-    off = rules.is_off_track(env.lateral, env.half_width, cfg["off_track_margin"])
+    off = rules.is_off_track(env.lateral, env.half_width, cfg["termination"]["off_track_margin"])
     flipped = rules.is_flipped(env.up_z)
     env.flipped_buf = flipped
     env.time_out_buf = env.episode_length_buf >= env.max_episode_length
@@ -54,12 +60,12 @@ def check_termination(env: "DeepRacerEnv") -> None:
         # "violate at most `budget`" instead of hand-tuning a penalty.
         # Only unrecoverable states terminate (flip, or far off the road).
         hard_off = rules.is_off_track(env.lateral, env.half_width,
-                                      cfg["off_track_margin"] + 0.4)
+                                      cfg["termination"]["off_track_margin"] + 0.4)
         env.offtrack_buf = hard_off
         env.reset_buf = hard_off | flipped | env.time_out_buf
         cost = off.float() + flipped.float()
         if env.cost_fn == "offtrack_or_overspeed":
-            cost += (env.v_forward > cfg.get("overspeed_limit", 3.5)).float()
+            cost += (env.v_forward > cfg["termination"].get("overspeed_limit", 3.5)).float()
         elif env.cost_fn == "crash":
             cost = flipped.float() + hard_off.float()
         env.cost_buf = cost
@@ -68,4 +74,4 @@ def check_termination(env: "DeepRacerEnv") -> None:
         env.offtrack_buf = off
         env.reset_buf = off | flipped | env.time_out_buf
         # terminal penalty for genuine failures (not timeouts)
-        env.rew_buf += (off | flipped).float() * cfg["crash_penalty"]
+        env.rew_buf += (off | flipped).float() * cfg["termination"]["crash_penalty"]

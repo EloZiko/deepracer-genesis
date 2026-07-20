@@ -1,9 +1,4 @@
-"""run(): the single dispatcher (plan section 1.2).
-
-Accepts a registered name, an @experiment function, an Experiment class or
-instance, a Pipeline, or a raw ExperimentSpec. Heavy imports (torch/genesis)
-happen only past build_only.
-"""
+"""Single dispatcher resolving any experiment handle into a spec and running it."""
 
 from __future__ import annotations
 

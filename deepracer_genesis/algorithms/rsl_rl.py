@@ -1,10 +1,6 @@
 """Legacy rsl-rl-lib integration (the pre-TorchRL training path).
 
-`python -m deepracer_genesis.train` uses this: DeepRacerEnv speaks the
-rsl-rl 5.x VecEnv contract natively (TensorDict obs groups, no reset() from
-the runner, extras["time_outs"]), so the glue is just runner construction.
-The TorchRL experiment framework (deepracer_genesis.experiment) is the
-maintained path; this stays for reproducing the early baselines.
+Kept for reproducing early baselines; TorchRL is the maintained path.
 """
 
 from __future__ import annotations

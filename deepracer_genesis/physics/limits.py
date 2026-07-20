@@ -1,19 +1,6 @@
-"""Single source of truth for the DeepRacer car's physical limits.
+"""Single source of truth for the DeepRacer car's immutable physical limits.
 
-Two tiers:
-
-- **Immutable reference** — geometry read off the URDF and the operational
-  action-space caps. These are facts about the car, not tunables; import them,
-  never re-declare the literals.
-- **Fixed normalization divisors** — the constant scales the feature vectors
-  use (never episodic statistics).
-
-Tunable knobs (control gains, domain-randomization ranges) live in
-:mod:`deepracer_genesis.configs.cfgs`, not here.
-
-Geometry is derived from ``assets/urdf/deepracer/deepracer_processed.urdf``:
-``WHEELBASE_M`` = front steering-hinge x (0.082311) − rear-wheel x (−0.081663);
-``FRONT_TRACK_M`` = 2 × steering-hinge |y| (0.079601).
+Import these URDF geometry facts, action caps, and fixed normalization divisors.
 """
 
 import math
@@ -41,13 +28,7 @@ A_LAT_NORM: float = 20.0            # m/s²
 
 
 def ackermann_angles(delta: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    """Front-wheel steering angles for a commanded center (bicycle) angle.
-
-    Splits a single commanded steering angle into the geometrically correct
-    left/right hinge angles so the inner wheel steers more than the outer
-    (true Ackermann), using the URDF wheelbase and front track. Written in the
-    ``atan2`` form so it is numerically safe at ``delta = 0`` (both angles → 0,
-    no division by the vanishing ``tan``).
+    """Split a commanded center (bicycle) angle into true-Ackermann left/right hinge angles.
 
     Args:
         delta: commanded center steering angle in radians, positive = left.

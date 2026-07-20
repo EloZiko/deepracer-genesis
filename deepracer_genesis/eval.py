@@ -38,10 +38,10 @@ def main():
     else:
         env_cfg, train_cfg = get_env_cfg(vision=True), get_train_cfg(vision=True)
 
-    env_cfg["random_start"] = True   # spread the agents around the track
-    env_cfg["spectator"] = True      # high-res rasterizer cam, all agents in one view
+    env_cfg["spawn"]["random_start"] = True   # spread the agents around the track
+    env_cfg["vision"]["spectator"] = True      # high-res rasterizer cam, all agents in one view
     w, h = args.res.lower().split("x")
-    env_cfg["spectator_res"] = (int(w), int(h))
+    env_cfg["vision"]["spectator_res"] = (int(w), int(h))
     env = DeepRacerEnv(num_envs=args.num_envs, env_cfg=env_cfg)
 
     runner = OnPolicyRunner(env, train_cfg, None, device=str(gs.device))

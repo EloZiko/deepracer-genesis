@@ -1,11 +1,6 @@
-"""Genesis scene assembly for the DeepRacer env.
+"""Assemble the Genesis simulation scene for the DeepRacer env.
 
-``build_scene(env, ...)`` creates the ``gs.Scene`` (renderer chosen by the
-env's :class:`~deepracer_genesis.envs.renderers.Renderer` strategy), adds the
-ground/field plane, the :class:`~deepracer_genesis.envs.entities.Car`, and the
-track morph(s), lets the renderer add its cameras/lights/sensors, then calls
-``scene.build()``. Post-build steps (car control config, camera attach) happen
-back in the env's ``__init__`` — see :mod:`deepracer_genesis.envs.base_env`.
+Entry point ``build_scene(env, ...)`` builds the scene, plane, car, and track morph(s).
 """
 
 from __future__ import annotations
@@ -22,27 +17,45 @@ if TYPE_CHECKING:
 
 
 def build_scene(env: "DeepRacerEnv", env_cfg: dict, show_viewer: bool) -> None:
-    """Create the scene, add the plane/car/track, and build it. Populates
-    ``env.renderer``, ``env.scene``, ``env.plane``, ``env.car``,
-    ``env.track_entity``."""
-    env.renderer = make_renderer(env_cfg)
+    """Create the scene, add the plane/car/track morph(s), and build it.
+
+    Populates ``env.renderer``, ``env.scene``, ``env.plane``, ``env.car``, and ``env.track_entity``.
+
+    Args:
+        env: The DeepRacer env being constructed; its ``track`` and
+            ``num_envs`` are read, and the scene attributes above are written.
+        env_cfg: Scene configuration, including ``dt``, optional
+            ``randomize`` (enables batched dofs/links physics info for domain
+            randomization), and optional ``background_color``, ``field_color``.
+        show_viewer: Whether to open an interactive Genesis viewer window.
+
+    Raises:
+        NotImplementedError: If more than one track morph is requested with the
+            Nyx renderer (heterogeneous tracks are unsupported there), or with
+            any camera-capable renderer (genesis 1.2.1 never feeds
+            ``vgeom.active_envs_mask`` to the batch renderer, so every env would
+            render all track variants superimposed with z-fighting;
+            feature-mode multi-track without rendering is fine).
+    """
+    env.renderer = make_renderer(env_cfg["vision"])
+    randomize = bool(env_cfg["rand"]["randomize"])
 
     env.scene = gs.Scene(
-        sim_options=gs.options.SimOptions(dt=env_cfg["dt"], substeps=1),
+        sim_options=gs.options.SimOptions(dt=env_cfg["sim"]["dt"], substeps=1),
         rigid_options=gs.options.RigidOptions(
-            dt=env_cfg["dt"],
+            dt=env_cfg["sim"]["dt"],
             constraint_solver=gs.constraint_solver.Newton,
             enable_collision=True,
             enable_joint_limit=True,
             # per-env dofs/links properties (kp/kv/armature/mass/COM DR) need
             # batched physics info, per the Genesis DR guide
-            batch_dofs_info=bool(env_cfg.get("randomize", False)),
-            batch_links_info=bool(env_cfg.get("randomize", False)),
+            batch_dofs_info=randomize,
+            batch_links_info=randomize,
         ),
         vis_options=gs.options.VisOptions(
             shadow=False,
             ambient_light=(0.35, 0.35, 0.35),
-            background_color=tuple(env_cfg.get("background_color", (0.55, 0.72, 0.9))),
+            background_color=tuple(env_cfg["vision"].get("background_color", (0.55, 0.72, 0.9))),
         ),
         renderer=env.renderer.scene_renderer(),
         show_viewer=show_viewer,
@@ -51,7 +64,7 @@ def build_scene(env: "DeepRacerEnv", env_cfg: dict, show_viewer: bool) -> None:
     # green ground doubles as the field: some DAE ground materials render
     # transparent under Madrona, and this is what shows through. Must be a
     # surface color — Madrona does not sample ImageTexture on primitives.
-    fc = env_cfg.get("field_color", (0.30, 0.48, 0.32))
+    fc = env_cfg["vision"].get("field_color", (0.30, 0.48, 0.32))
     env.plane = env.scene.add_entity(
         gs.morphs.Plane(pos=(0, 0, -0.001)),
         surface=gs.surfaces.Rough(color=(*fc, 1.0)),
@@ -78,5 +91,5 @@ def build_scene(env: "DeepRacerEnv", env_cfg: dict, show_viewer: bool) -> None:
         track_morphs if len(track_morphs) > 1 else track_morphs[0])
 
     # renderer adds its cameras / lights / sensors, then we build the scene
-    env.renderer.build(env, env_cfg)
+    env.renderer.build(env, env_cfg["vision"])
     env.scene.build(n_envs=env.num_envs)

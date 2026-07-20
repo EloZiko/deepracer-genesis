@@ -37,11 +37,11 @@ def main():
 
     w, h = args.res.lower().split("x")
     env_cfg = get_env_cfg(vision=True, topdown=True)
-    env_cfg["vision_renderer"] = "nyx"
-    env_cfg["camera_res"] = (int(w), int(h))
-    env_cfg["nyx_spp"] = args.spp
-    env_cfg["nyx_mode"] = args.mode
-    env_cfg["random_start"] = True
+    env_cfg["vision"]["vision_renderer"] = "nyx"
+    env_cfg["vision"]["camera_res"] = (int(w), int(h))
+    env_cfg["vision"]["nyx_spp"] = args.spp
+    env_cfg["vision"]["nyx_mode"] = args.mode
+    env_cfg["spawn"]["random_start"] = True
     env = DeepRacerEnv(num_envs=args.num_envs, env_cfg=env_cfg)
 
     # the state policy drives (it reads the "state" obs group, which the env

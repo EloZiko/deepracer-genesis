@@ -1,29 +1,6 @@
-"""The Algorithm contract: how to plug your own training algorithm in.
+"""Algorithm contract for plugging a custom training algorithm into the Trainer.
 
-HOW TO ADD A CUSTOM ALGORITHM (SAC, Dreamer-style world models, ...):
-
-1. Write a class satisfying the `Algorithm` protocol below. The Trainer owns
-   the outer loop (collector -> train -> log -> checkpoint -> eval); your
-   class owns everything algorithm-specific:
-     - `setup(builder)`: build networks/losses/optimizers from the Builder
-       (which gives you `actor()`, `critic(out_key=...)`, `gae(...)`,
-       `optimizer(...)`, obs-key dims, the sim, and the spec).
-     - `collect_policy`: the (exploratory) policy module the Collector runs.
-     - `eval_actor`: the module used for deterministic evaluation.
-     - `train_on_batch(data)`: consume ONE collector yield of shape [N, T]
-       (root obs/action + ("next", reward/done/terminated/truncated/obs)).
-       Off-policy algorithms are free to stash it in their own replay buffer
-       and take gradient steps at their own cadence; on-policy ones run their
-       epochs/minibatches here. Return a dict of scalars to log.
-     - `observe_env_logs(logs)`: the sim's episode logs each iteration
-       (PPO-Lagrangian reads "Episode/cost" here to drive the PID lambda).
-     - `checkpoint()`: state_dicts to persist alongside the Trainer payload.
-2. Register it: `@register_algorithm("my_kind")`.
-3. Select it from the DSL with the terminal stage `Algo(kind="my_kind",
-   params={...})` — or add a dedicated Stage subclass for nicer authoring.
-
-The declaration layer never imports this module; unknown kinds fail at
-Builder time with the list of registered names.
+Satisfy the `Algorithm` protocol, register with `@register_algorithm`, and select via `Algo(kind=...)`.
 """
 
 from __future__ import annotations

@@ -1,25 +1,4 @@
-"""Scripted agents that walk the environment (no learning involved).
-
-These drive the sim for data collection, DR previews and track sanity
-checks. They read PRIVILEGED simulator state (the exact track-frame
-quantities the reward uses), so they need no training — subclass
-`PrivilegedAgent` and override `act()` to write your own behavior:
-
-    class Weaver(PrivilegedAgent):
-        def act(self, sim):
-            steer = torch.sin(sim.progress_m)          # slalom forever
-            return torch.stack([steer, torch.full_like(steer, -0.3)], dim=1)
-
-    collect_rollout_dataset(pipeline, agent=Weaver(), ...)
-
-Useful sim attributes (all (N,) CUDA tensors, direction-aware):
-    sim.lateral        signed offset from the centerline (meters)
-    sim.half_width     road half-width at the car
-    sim.heading_err    yaw error vs the track tangent (0 = aligned)
-    sim.dir_sign       +1/-1 driving direction (see random_direction)
-    sim.v_forward      forward speed (m/s)
-    sim.progress_m     arclength position along the track
-"""
+"""Scripted agents that drive the sim from privileged state (no learning)."""
 
 from __future__ import annotations
 
@@ -27,9 +6,7 @@ import torch
 
 
 class PrivilegedAgent:
-    """Base scripted driver. `act(sim) -> (N, 2) actions in [-1, 1]`
-    ([steering, throttle]); `reset(env_ids)` clears per-env state after
-    respawns (optional)."""
+    """Base scripted driver mapping sim state to (N, 2) [steering, throttle]."""
 
     def act(self, sim) -> torch.Tensor:
         raise NotImplementedError
@@ -39,11 +16,7 @@ class PrivilegedAgent:
 
 
 class CenterlineFollower(PrivilegedAgent):
-    """Deterministic P-controller on lateral offset + heading error.
-
-    Drives cleanly at moderate speed on every track — the baseline expert
-    used by DR previews and track sanity drives.
-    """
+    """Deterministic P-controller on lateral offset and heading error."""
 
     def __init__(self, k_lateral: float = 1.1, k_heading: float = 0.9,
                  throttle: float = -0.3):
@@ -67,13 +40,7 @@ class CenterlineFollower(PrivilegedAgent):
 
 
 class NoisyExpert(CenterlineFollower):
-    """CenterlineFollower + Ornstein-Uhlenbeck action noise.
-
-    The OU process gives temporally-CORRELATED wandering (white noise just
-    jitters in place): trajectories drift off the centerline and sometimes
-    off the track entirely — episodes end, respawn, and the dataset gets the
-    recovery/failure frames a perception model needs to see.
-    """
+    """CenterlineFollower with temporally-correlated Ornstein-Uhlenbeck noise."""
 
     def __init__(self, noise: float = 0.35, theta: float = 0.05, **kwargs):
         """Configure the OU noise on top of the follower gains.

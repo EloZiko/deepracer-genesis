@@ -1,9 +1,6 @@
-"""Camera-observation DeepRacer env.
+"""Provide the camera-observation DeepRacer environment.
 
-Adds the ``camera`` observation group on top of the shared base: preallocates
-the image buffer, refreshes it each step from the renderer, and includes it in
-the observation TensorDict. Which vision renderer (Madrona / Nyx) is used is
-decided by the config (see :func:`~deepracer_genesis.envs.renderers.make_renderer`).
+Add a ``camera`` observation group backed by an image buffer refreshed each step.
 """
 
 from __future__ import annotations
@@ -14,16 +11,37 @@ from .base_env import DeepRacerEnv
 
 
 class VisionDeepRacerEnv(DeepRacerEnv):
+    """DeepRacer environment that exposes a rendered camera observation.
+
+    Owns the rendered image buffer and publishes it as an extra observation group.
+    """
+
     def _init_obs_buffers(self, env_cfg: dict) -> None:
-        w, h = env_cfg["camera_res"]
+        """Preallocate the camera image buffers for all parallel envs.
+
+        Args:
+            env_cfg: Environment configuration; ``camera_res`` gives the render
+                resolution as a ``(width, height)`` pair.
+        """
+        w, h = env_cfg["vision"]["camera_res"]
         self.image_buf = torch.zeros(self.num_envs, 3, h, w, device=self.device)
         # policy may train below render resolution (demo videos); render() sets both
         self.obs_image_buf = self.image_buf
 
     def _observe_camera(self) -> None:
+        """Refresh the camera buffers from the renderer for the current state.
+
+        Stores full-resolution and policy-resolution frames into the buffers.
+        """
         self.image_buf, self.obs_image_buf = self.renderer.render(self)
 
     def _obs_groups(self) -> dict:
+        """Assemble the observation groups, adding the ``camera`` frame.
+
+        Returns:
+            The base observation groups augmented with a ``camera`` entry
+            holding the current policy-resolution image buffer.
+        """
         groups = super()._obs_groups()
         groups["camera"] = self.obs_image_buf
         return groups

@@ -1,12 +1,6 @@
 """TorchRL EnvBase wrapper over the GPU-batched DeepRacerEnv sim.
 
-Contract verified against torchrl 0.13.2 (see /tmp/torchrl_cheatsheet.md):
-- the sim auto-resets done sub-envs inside its own step(), so we use the
-  native autoreset flag (`_torchrl_native_autoreset = True`) — the collector
-  then never issues synthetic resets; ("next", obs) is NaN-filled at done
-  rows and GAE's NaN-sanitizer bootstraps truncated rows with V(obs_t).
-- terminated = crash/offtrack (bootstrap killed), truncated = timeout
-  (bootstrap kept) — the reason the sim's time_out_buf is surfaced separately.
+Uses the sim's native autoreset; terminated is crash/offtrack, truncated is timeout.
 """
 
 from __future__ import annotations
@@ -24,7 +18,10 @@ if TYPE_CHECKING:
 
 
 class TorchRLDeepRacerEnv(EnvBase):
+    """TorchRL EnvBase adapter for the batched DeepRacerEnv sim."""
+
     def __init__(self, sim: DeepRacerEnv, emit_cost: bool = False) -> None:
+        """Build specs from the sim and enable native autoreset."""
         n = sim.num_envs
         device = sim.device
         super().__init__(device=device, batch_size=[n])
@@ -61,12 +58,14 @@ class TorchRLDeepRacerEnv(EnvBase):
 
     # ------------------------------------------------------------------
     def _obs_leaves(self, obs_td: TensorDictBase) -> dict[str, torch.Tensor]:
+        """Return the observation leaf tensors keyed by spec name."""
         leaves = {"state": obs_td["state"]}
         if self.sim.vision:
             leaves["camera"] = obs_td["camera"]
         return leaves
 
     def _step(self, tensordict: TensorDictBase) -> TensorDict:
+        """Advance the sim one step and pack obs, reward, and done flags."""
         obs_td, rew, dones, _extras = self.sim.step(tensordict["action"])
         info = self.sim.step_info
         n1 = (*self.batch_size, 1)
@@ -84,6 +83,7 @@ class TorchRLDeepRacerEnv(EnvBase):
         return TensorDict(out, batch_size=self.batch_size, device=self.device)
 
     def _reset(self, tensordict: TensorDictBase | None, **kwargs) -> TensorDict:
+        """Reset the masked sub-envs and return fresh observations."""
         mask = tensordict.get("_reset", None) if tensordict is not None else None
         if mask is None:
             ids = torch.arange(self.sim.num_envs, device=self.device)
@@ -100,5 +100,6 @@ class TorchRLDeepRacerEnv(EnvBase):
             batch_size=self.batch_size, device=self.device)
 
     def _set_seed(self, seed: int | None) -> None:
+        """Seed the global torch RNG used for sim spawn noise."""
         if seed is not None:
             torch.manual_seed(seed)   # sim spawn noise uses the global RNG

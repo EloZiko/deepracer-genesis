@@ -1,18 +1,5 @@
-"""Camera-feed validation harness (plan section i).
-
-Training is fully headless; this script proves the vision pipeline works by
-saving paired images per env — the onboard camera feed and a top-down view
-above the track — plus short videos, and running automated sanity checks:
-
-  1. non-degenerate frames (pixel std > threshold; catches broken EGL/Madrona)
-  2. frames change between steps (catches a frozen camera mount)
-  3. frames differ across envs (catches the renderer returning env 0 for all)
-  4. cross-view consistency: the car's sim-state position projected through
-     the top-down camera matches where the car appears in the top-down image
-
-  python -m deepracer_genesis.validation.camera_check [--num_envs 4] [--steps 120]
-  python -m deepracer_genesis.validation.camera_check --checkpoint logs/deepracer/model_300.pt
-"""
+"""Validate the headless vision pipeline by saving per-env images/videos and
+running automated frame and cross-view consistency checks."""
 
 import argparse
 import math
@@ -26,6 +13,7 @@ import genesis as gs
 
 
 def main():
+    """Run the camera validation harness and exit nonzero on any failed check."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_envs", type=int, default=4)
     parser.add_argument("--steps", type=int, default=120)
@@ -50,15 +38,15 @@ def main():
     tracks = args.tracks.split(",")
     env_cfg = get_env_cfg(vision=True, randomize=args.randomize, topdown=True,
                           track=tracks if len(tracks) > 1 else tracks[0])
-    env_cfg["random_start"] = True
+    env_cfg["spawn"]["random_start"] = True
     if args.nyx:
-        env_cfg["vision_renderer"] = "nyx"
+        env_cfg["vision"]["vision_renderer"] = "nyx"
     if len(tracks) == 1:
         # all tracks overlap in world coords, so the all-envs spectator view
         # is only meaningful for a homogeneous scene
-        env_cfg["spectator"] = True
+        env_cfg["vision"]["spectator"] = True
         w, h = args.res.lower().split("x")
-        env_cfg["spectator_res"] = (int(w), int(h))
+        env_cfg["vision"]["spectator_res"] = (int(w), int(h))
     env = DeepRacerEnv(num_envs=args.num_envs, env_cfg=env_cfg)
 
     policy = None
@@ -132,6 +120,7 @@ def main():
     saved_qpos = env.car.get_qpos().clone()
 
     def detect_centroids(reference):
+        """Return each env's car pixel centroid by differencing against reference."""
         top = env.render_topdown().float().cpu()
         out = []
         for i in range(N):
@@ -144,6 +133,7 @@ def main():
         return out
 
     def place_cars(xy):
+        """Move every env's car to the given xy and settle the physics."""
         q = torch.zeros(N, 13, device=env.device)
         q[:, 0:2] = xy
         q[:, 2] = 0.03

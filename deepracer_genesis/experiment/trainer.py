@@ -1,18 +1,6 @@
-"""Trainer: the algorithm-agnostic outer loop, emitting an EvalRecord.
+"""Algorithm-agnostic outer training loop emitting an EvalRecord.
 
-The Trainer owns collection, logging, checkpointing and periodic + final
-evaluation; everything algorithm-specific lives behind the Algorithm protocol
-(see deepracer_genesis.algorithms). Runs are not result-cached — a run always
-trains from scratch and overwrites its run dir. Training-time
-episode stats come from the SIM's own logs (the autoreset machinery
-NaN-fills ("next", obs) at done rows, so collector data is unreliable for
-episode metrics); evaluation drives the raw sim deterministically.
-
-Observability: TensorBoard always (one event file per run dir); MLflow when
-`MLFLOW_TRACKING_URI` is set (or mlflow is importable and `DRG_MLFLOW=1`).
-Both log per COLLECTOR ITERATION (num_envs x horizon env-steps, ~200
-iterations for a 5M-step run), never per env-step — logging overhead is
-unmeasurable at this cadence.
+Owns collection, logging, checkpointing and evaluation behind the Algorithm protocol.
 """
 
 from __future__ import annotations
@@ -56,10 +44,6 @@ def _flatten(d: dict, prefix: str = "") -> dict:
 class Trainer:
     """Algorithm-agnostic outer loop driving one Builder to an EvalRecord.
 
-    Owns collection, logging, checkpointing and periodic + final evaluation;
-    everything algorithm-specific lives behind the Algorithm protocol (see the
-    module docstring for the episode-stats and observability details).
-
     Args:
         builder: The Builder holding the validated spec (and, lazily, the
             sim, env, models and collector).
@@ -72,10 +56,7 @@ class Trainer:
 
     # ------------------------------------------------------------------
     def fit(self, on_eval=None) -> EvalRecord:
-        """Train the spec to completion, always from scratch.
-
-        Runs are never result-cached: re-running a config retrains and
-        overwrites its run dir (``spec.run_dir``).
+        """Train the spec to completion from scratch, overwriting its run dir.
 
         Args:
             on_eval: Callback `on_eval(frames, metrics)`; fires after every

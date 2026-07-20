@@ -1,15 +1,6 @@
-"""PPO-Lagrangian pieces (plan section 4).
+"""PPO-Lagrangian pieces: PID-controlled lambda and a cost critic.
 
-The lambda controller is Stooke et al.'s PID-Lagrangian (ICML 2020): a PID
-loop on the constraint violation (J_cost - budget) instead of naive dual
-ascent, which oscillates. The combined surrogate uses
-A = (A_reward - lambda * A_cost) / (1 + lambda) — the 1/(1+lambda) scaling
-keeps the effective advantage magnitude stable as lambda grows.
-
-The PPO delta lives in PPOLagrangian below: a second (cost) critic + second
-GAE writing cost_advantage, the combined advantage written into the
-"advantage" key ClipPPOLoss reads, and a separate smooth-L1 value loss for
-the cost critic.
+Combine reward and cost advantages via (A_r - lambda * A_c) / (1 + lambda).
 """
 
 from __future__ import annotations
@@ -60,14 +51,7 @@ class PIDLagrangian:
 
 @register_algorithm("ppo_lagrangian")
 class PPOLagrangian(PPO):
-    """PPO + cost critic + PID-controlled lambda (plan section 4).
-
-    Delta over PPO: a second GAE over the ("next", "cost") stream writes
-    cost_advantage/cost_value_target; the surrogate uses the combined
-    advantage (A_r - lambda * A_c) / (1 + lambda); the cost critic trains
-    with a smooth-L1 value loss; lambda is a PID loop on the violation of
-    the mean episode cost against the budget, updated once per iteration.
-    """
+    """PPO with a cost critic and a PID-controlled Lagrangian lambda."""
 
     def setup(self, builder: "Builder") -> None:
         super().setup(builder)

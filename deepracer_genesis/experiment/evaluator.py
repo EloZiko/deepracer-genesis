@@ -1,8 +1,4 @@
-"""Evaluation: episodic metric aggregation + EvalRecord (plan section 5.2).
-
-The aggregation core is torchrl-agnostic — it consumes plain (T, N) tensors —
-so it is unit-testable without a simulator and reusable by any rollout loop.
-"""
+"""Episodic metric aggregation and EvalRecord over torchrl-agnostic (T, N) tensors."""
 
 from __future__ import annotations
 
@@ -21,19 +17,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class EvalRecord:
-    """One run's provenance + measurements; the Reporter's input unit.
-
-    Attributes:
-        spec_id: Identity hash of the spec (the run-directory key).
-        spec: One-way dump of the ExperimentSpec.
-        seed: Training seed.
-        ablation_group: Group tag for the reporter's delta tables.
-        variant: Variant tag within the ablation group.
-        metrics: Final evaluation metrics (see aggregate_episodes).
-        train: Training stats (steps_per_s, wall_clock_s, ...).
-        eval_history: Periodic evals: [{frames, **metrics}].
-        created_at: ISO timestamp, filled on save() when empty.
-    """
+    """One run's provenance and measurements; the Reporter's input unit."""
 
     spec_id: str
     spec: dict                      # one-way dump of the ExperimentSpec
@@ -79,10 +63,8 @@ class EvalRecord:
 def evaluate_policy(sim: "DeepRacerEnv", actor, steps: Optional[int] = None,
                     obs_transform: Callable | None = None,
                     cost_budget: Optional[float] = None) -> dict:
-    """Deterministic eval rollout driving the RAW sim (plan section 5.2).
-
-    Bypasses the collector/autoreset machinery entirely: per-step episode
-    info comes straight from sim.step_info, so terminal-step stats are exact.
+    """Run a deterministic eval rollout on the raw sim, reading exact
+    terminal stats from sim.step_info (no collector/autoreset).
 
     Args:
         sim: The raw Genesis sim (DeepRacerEnv), not the TorchRL wrapper.
@@ -144,12 +126,8 @@ def aggregate_episodes(
     cost: Optional[torch.Tensor] = None,    # (T, N) per-step cost
     cost_budget: Optional[float] = None,
 ) -> dict:
-    """Fold per-step streams into per-episode stats, then into scalar metrics.
-
-    Only COMPLETED episodes (a done inside the window) are counted, so the
-    partial trailing episode of each env never biases the stats. Laps derive
-    from cumulative progress / track_length — robust to random spawn points
-    (a car spawning just before the finish line does not get a free "lap").
+    """Fold per-step streams into scalar metrics, counting only completed
+    episodes and deriving laps from cumulative progress / track_length.
 
     Args:
         reward: (T, N) per-step rewards.

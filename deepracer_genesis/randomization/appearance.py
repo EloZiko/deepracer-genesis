@@ -1,29 +1,5 @@
-"""Baked track texture variants (rasterizer use only — see WARNING).
-
-WARNING: heterogeneous texture-variant morphs DO NOT dispatch per env under
-the Madrona batch renderer: genesis 1.2.1 never passes vgeom.active_envs_mask
-to it (only vis/rasterizer_context.py honors it), so every env renders ALL
-variants superimposed and z-fighting picks the pixels. The env therefore does
-NOT use this module for camera training — world-appearance DR is done as a
-per-env, per-episode color remap of the rendered observation instead (see
-envs/renderers.py `_CameraRenderer.resample_appearance`). This module remains
-for rasterizer-based
-tooling and as the baked-variant generator should the batch renderer grow
-per-env visibility.
-
-Variant recipe, per texture of the track's composite mesh:
-- every texture gets a random per-variant RGB tint (`tint` range);
-- textures whose filename looks like the ROAD surface can additionally be
-  swapped for one of the alternate surface materials that ship with the
-  DeepRacer assets (Brick/Carpet/Concrete/Grass `*_DIFF` images), retiled to
-  the original resolution (`swap_road_materials`);
-- lane-line textures get their own (usually milder) `line_tint` — they are
-  the task-relevant visual cue, so they default to subtler variation.
-
-The composite DAEs reference textures RELATIVELY (`textures/x.png`), so a
-variant is just a copy of the .dae next to a directory of modified textures —
-no XML rewriting. Variants are deterministic in (track, params, seed) and
-cached under ~/.cache/deepracer_genesis/appearance/.
+"""Bake deterministic, cached track texture variants for rasterizer tooling
+(not used for Madrona camera training, which lacks per-env variant dispatch).
 """
 
 from __future__ import annotations
@@ -43,11 +19,8 @@ _ALT_SURFACE_RE = re.compile(r"_DIFF\.(png|jpe?g)$", re.IGNORECASE)
 
 
 def _tint_image(img, rgb):
-    """Multiply an image's RGB channels by an (r, g, b) factor triple.
-
-    Keeps the source's alpha-ness: adding an alpha channel to an opaque
-    texture flips Madrona onto its alpha-cutout path, which renders with
-    magenta background bleed (known gs-madrona quirk)."""
+    """Multiply an image's RGB channels by an (r, g, b) factor triple,
+    preserving the source's alpha-ness."""
     from PIL import Image
     has_alpha = img.mode in ("RGBA", "LA") or (img.mode == "P" and "transparency" in img.info)
     mode = "RGBA" if has_alpha else "RGB"
@@ -62,9 +35,9 @@ def generate_track_variants(mesh_path: str, n: int, *, seed: int = 0,
                             swap_road_materials: bool = True) -> list[str]:
     """Bake `n` appearance variants of the composite mesh at `mesh_path`.
 
-    Returns the list of variant .dae paths (cached: a second call with the
-    same parameters is free). Tints/swaps are drawn from a dedicated RNG so
-    the variant set is reproducible across processes and machines.
+    Returns:
+        The list of variant .dae paths (cached and reproducible in the
+        parameters).
     """
     from PIL import Image
 
@@ -141,13 +114,9 @@ def generate_track_variants(mesh_path: str, n: int, *, seed: int = 0,
 def generate_field_planes(n: int, *, seed: int = 0, size_m: float = 60.0,
                           base_color: tuple = (0.30, 0.48, 0.32),
                           tint: tuple = (0.5, 1.5)) -> list[str]:
-    """Bake `n` ground-plane OBJ quads with per-variant diffuse colors.
+    """Bake `n` ground-plane OBJ quads with per-variant MTL diffuse colors.
 
-    The env's ground plane is what shows through where DAE ground materials
-    render transparent under Madrona; a heterogeneous list of these quads
-    gives each parallel env its own field color (color lives in the MTL, so
-    it survives the batch renderer, unlike per-entity surface colors on
-    primitives).
+    Returns the list of variant .obj paths (cached).
     """
     rng = np.random.default_rng(seed ^ 0x5EED)
     key = hashlib.sha1(json.dumps([n, seed, size_m, base_color, tint],

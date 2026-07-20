@@ -1,22 +1,5 @@
-"""Build renderable tracks from waypoint routes (and fetch official ones).
-
-A DeepRacer route file is an (W, 6) float array of [center_xy, inner_xy,
-outer_xy] per waypoint. The original Gazebo track meshes exist only for a
-handful of tracks — this module generates a road mesh procedurally from the
-route instead, so EVERY official route (126 on aws-deepracer-community/
-deepracer-race-data) and any custom-drawn track becomes drivable + renderable:
-
-    from deepracer_genesis.tools.track_builder import fetch_official_track
-    fetch_official_track("Oval_track")        # -> usable as track="Oval_track"
-
-The generated mesh is plain OBJ + MTL colors (road surface, white border
-lines, dashed centerline) — no textures, which sidesteps every Madrona
-texture quirk (alpha bleed, mipmap-less aliasing, R<->G swap) and renders
-identically under Madrona / Nyx / rasterizer.
-
-Custom tracks: see build_route() + install_track() (used by
-notebooks/track_designer.ipynb).
-"""
+"""Build renderable road meshes procedurally from DeepRacer waypoint routes,
+and fetch/install any official track so it becomes drivable and renderable."""
 
 from __future__ import annotations
 
@@ -45,11 +28,8 @@ _PALETTE = {"road": (41, 43, 51), "border": (235, 235, 235),
 # ----------------------------------------------------------------- geometry
 def build_route(points_xy, half_width: float, n_waypoints: int = 150,
                 smooth_passes: int = 3) -> np.ndarray:
-    """Turn a rough closed polygon into a (W, 6) DeepRacer route.
-
-    Chaikin corner-cutting smooths the polygon into a drivable loop,
-    arclength resampling spaces the waypoints evenly, and the borders are
-    offset `half_width` along the left/right normals.
+    """Turn a rough closed polygon into a (W, 6) DeepRacer route via Chaikin
+    smoothing, even arclength resampling, and half_width border offsets.
 
     Args:
         points_xy: Any (P, 2) sequence of corner points (P >= 3), traversed
@@ -98,13 +78,8 @@ def build_route(points_xy, half_width: float, n_waypoints: int = 150,
 def route_from_waypoints(waypoints_xy, width: float,
                          n_waypoints: Optional[int] = None,
                          waypoint_spacing: float = 0.3) -> np.ndarray:
-    """Build a route the DeepRacer-native way: centerline waypoints + width.
-
-    No smoothing — your waypoints ARE the centerline. The polyline is
-    densified to roughly `waypoint_spacing` meters between waypoints
-    (official tracks use ~0.15 m), so a 4-corner square becomes a properly
-    sampled loop instead of 4 points; the sim's localization, lookahead and
-    curvature features all assume dense waypoints.
+    """Build a (W, 6) route from unsmoothed centerline waypoints and a width,
+    densifying the polyline so downstream localization features stay valid.
 
     Args:
         waypoints_xy: (P, 2) centerline points in meters, in driving order.
@@ -120,10 +95,6 @@ def route_from_waypoints(waypoints_xy, width: float,
 
     Raises:
         ValueError: fewer than 3 points or a malformed array.
-
-    Example:
-        >>> route = route_from_waypoints([(0, 0), (5, 0), (5, 4), (0, 4)], width=1.06)
-        >>> install_track("my_square", route)
     """
     pts = np.asarray(waypoints_xy, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
@@ -226,12 +197,8 @@ def _write_strip(f, left, right, z, vert_offset, flip):
 def build_track_mesh(route: np.ndarray, out_obj: str, *,
                      line_width: float = 0.04, dash_len: float = 0.30,
                      dash_gap: float = 0.35) -> str:
-    """Write a road-ribbon OBJ (road / border lines / dashed centerline).
-
-    Materials are solid colors delivered as tiny 4x4 PNG textures (see the
-    _PALETTE note: Madrona's textureless path misassigns per-submesh Kd
-    colors), so the mesh renders identically under Madrona / Nyx /
-    rasterizer. The .mtl and PNGs are written next to the OBJ.
+    """Write a road-ribbon OBJ (road, border lines, dashed centerline) plus its
+    .mtl and solid-color 4x4 PNG textures next to it.
 
     Args:
         route: (W, 6) route array ([center, inner, outer] per waypoint).
@@ -296,11 +263,8 @@ def build_track_mesh(route: np.ndarray, out_obj: str, *,
 
 # ------------------------------------------------------------ registration
 def install_track(name: str, route: np.ndarray) -> str:
-    """Persist a route + generated mesh under the assets tree and register it.
-
-    After this (and in every later process — generated tracks are discovered
-    at import), the track is usable anywhere a track name is accepted:
-    `FeatureEnvironment(tracks=(name,))`, `rollout_video(..., track=name)`...
+    """Persist a route and generated mesh under the assets tree and register it
+    so the track is usable anywhere a track name is accepted.
 
     Args:
         name: Track name to register under.
@@ -329,12 +293,8 @@ def install_track(name: str, route: np.ndarray) -> str:
 
 
 def fetch_official_track(name: str, *, force: bool = False) -> str:
-    """Download an official route from deepracer-race-data and install it.
-
-    126 tracks are available — e.g. Oval_track, Bowtie_track, AWS_track,
-    Canada_Training, China_track, Mexico_track, New_York_Track, Spain_track,
-    Tokyo_Training_track, Vegas_track, Monaco, Austin, Singapore,
-    arctic_open, penbay_pro, ... (see the repo for the full list).
+    """Download an official route from deepracer-race-data and install it
+    (126 tracks available, e.g. Oval_track, Bowtie_track, Monaco).
 
     Args:
         name: Official track name, exactly as spelled in the repo.

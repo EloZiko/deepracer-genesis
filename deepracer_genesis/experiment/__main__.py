@@ -1,13 +1,6 @@
 """CLI for running registered experiments.
 
-    python -m deepracer_genesis.experiment feature_baseline
-    python -m deepracer_genesis.experiment SafeTransfer --set budget=10 --seed 2
-    python -m deepracer_genesis.experiment cam_baseline --steps 2000000 --video
-    python -m deepracer_genesis.experiment --list
-    python -m deepracer_genesis.experiment --report
-
-Experiments register on `import experiments` (the authored package in the
-repo root / cwd); name lookup is a handle to Python code, never a file path.
+Names resolve via `import experiments` registrations, not file paths.
 """
 
 from __future__ import annotations

@@ -1,9 +1,4 @@
-"""Track registry: waypoint geometry + mesh paths for DeepRacer tracks.
-
-Waypoint .npy files come from the original AWS DeepRacer simapp
-(`simulation/routes/<track>.npy`) with shape (W, 6):
-[center_x, center_y, inner_x, inner_y, outer_x, outer_y].
-"""
+"""Track registry: waypoint geometry and mesh paths for DeepRacer tracks."""
 
 import math
 import os
@@ -82,10 +77,11 @@ class Track:
         self.curvature = dyaw / seg_len                        # (W,)
 
     def localize(self, pos_xy):
-        """For a batch of positions (N, 2), return per-env track frame quantities.
+        """Return per-position track-frame quantities for positions (N, 2).
 
-        Returns dict with: wp_idx (N,), lateral (N,) signed offset (+ = left),
-        half_width (N,), progress_m (N,) arclength in [0, L), track_yaw (N,).
+        Returns:
+            Dict with wp_idx (N,), lateral (N,) signed offset (+ = left),
+            half_width (N,), progress_m (N,) arclength in [0, L), track_yaw (N,).
         """
         d = torch.cdist(pos_xy, self.center)                   # (N, W)
         wp_idx = d.argmin(dim=1)                               # (N,)
@@ -121,8 +117,7 @@ class Track:
 
 
 def balanced_variant_mapping(n_variants, n_envs, device):
-    """Same contiguous block mapping Genesis uses to assign heterogeneous
-    morph variants to environments (kinematic_solver._balanced_variant_mapping)."""
+    """Map variants to envs in contiguous blocks, matching Genesis morph assignment."""
     if n_envs >= n_variants:
         base, extra = divmod(n_envs, n_variants)
         sizes = [base + 1] * extra + [base] * (n_variants - extra)
@@ -133,11 +128,7 @@ def balanced_variant_mapping(n_variants, n_envs, device):
 
 
 class MultiTrack:
-    """Batched geometry queries across per-env track variants.
-
-    Pads all tracks' waypoint arrays to a common length (padding pushed to
-    +inf so argmin never selects it) and gathers by each env's variant index.
-    """
+    """Batched geometry queries across per-env track variants, padded to a common length."""
 
     def __init__(self, names, num_envs, device):
         self.tracks = [Track(n, device) for n in names]
@@ -199,9 +190,7 @@ class MultiTrack:
         }
 
     def lookahead(self, wp_idx, k, stride=2, dir_sign=None):
-        """Indices of the k upcoming waypoints per env, (N, k). `dir_sign`
-        (N,) of +/-1 walks the waypoint order reversed for envs driving the
-        track in the opposite direction."""
+        """Indices of the k upcoming waypoints per env, (N, k); `dir_sign` (N,) of +/-1 reverses walk direction."""
         offs = torch.arange(1, k + 1, device=self.device) * stride
         offs = offs[None, :]
         if dir_sign is not None:

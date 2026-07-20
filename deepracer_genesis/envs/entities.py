@@ -1,11 +1,6 @@
-"""The DeepRacer car as a domain object.
+"""Model the DeepRacer car as a domain object over its Genesis entity.
 
-``Car`` wraps the Genesis URDF entity and owns every controller interaction —
-resolving the steering/drive DOFs, setting the PD gains + torque limits,
-measuring the wheel radius, and applying per-step control and resets. Unknown
-attribute access forwards to the underlying entity (``__getattr__``), so callers
-that still need raw Genesis entity methods (domain randomization, validation
-scenes) keep working while the env talks to a ``Car``.
+Unknown attribute access forwards to the underlying entity via ``__getattr__``.
 """
 
 from __future__ import annotations
@@ -28,9 +23,20 @@ STEER_DOFS = ["left_steering_hinge_joint", "right_steering_hinge_joint"]
 
 
 class Car:
-    """The car URDF entity + its steering/drive controllers."""
+    """Wrap the car URDF entity together with its steering/drive controllers.
+
+    Owns the DOF indices, PD gains, torque limits, wheel radius, and model.
+    """
 
     def __init__(self, scene, *, merge_fixed_links: bool) -> None:
+        """Add the car URDF to the (unbuilt) scene; call :meth:`configure` after build.
+
+        Args:
+            scene: The Genesis scene to add the car entity to; must not yet be
+                built.
+            merge_fixed_links: Whether to merge fixed links when loading the
+                URDF; the ``camera_link`` is always kept regardless.
+        """
         # add the URDF to the (unbuilt) scene; DOFs/gains resolved in configure()
         self.entity = scene.add_entity(
             gs.morphs.URDF(file=_URDF, pos=(0, 0, 0.05),
@@ -39,29 +45,48 @@ class Car:
         self.steering_model = "ackermann"
 
     def __getattr__(self, name):
+        """Forward undefined attribute lookups to the wrapped Genesis entity.
+
+        Args:
+            name: Attribute name that ``Car`` did not resolve on itself.
+
+        Returns:
+            The corresponding attribute of the underlying entity.
+        """
         # forward unknown attributes to the wrapped Genesis entity so raw entity
         # methods (get_pos, set_qpos, set_friction_ratio, n_links, idx, …) stay
         # available. Only fires for attributes Car itself does not define.
         return getattr(object.__getattribute__(self, "entity"), name)
 
     # ------------------------------------------------ post-build configuration
-    def configure(self, env_cfg: dict, device) -> None:
-        """Resolve DOF indices, set gains/torque limits, measure the wheel
-        radius, and select the steering model. Call after ``scene.build()``."""
+    def configure(self, car_cfg: dict, device) -> None:
+        """Finish car setup after ``scene.build()``: DOF indices, gains, limits, radius.
+
+        Args:
+            car_cfg: The ``car`` config section: ``steer_kp``/``steer_kv``
+                (steering PD gains), ``wheel_kv`` (drive velocity gain),
+                ``wheel_max_torque`` (drive torque cap), and ``steering_model``
+                (``"ackermann"`` or ``"parallel"``).
+            device: Torch device on which to place the gain/limit tensors.
+
+        Raises:
+            ValueError: If ``steering_model`` is not ``"ackermann"`` or
+                ``"parallel"``.
+        """
         e = self.entity
         self.wheel_dofs = [e.get_joint(n).dof_idx_local for n in WHEEL_DOFS]
         self.steer_dofs = [e.get_joint(n).dof_idx_local for n in STEER_DOFS]
-        e.set_dofs_kp(torch.full((2,), env_cfg["steer_kp"], device=device), self.steer_dofs)
-        e.set_dofs_kv(torch.full((2,), env_cfg["steer_kv"], device=device), self.steer_dofs)
-        e.set_dofs_kv(torch.full((4,), env_cfg["wheel_kv"], device=device), self.wheel_dofs)
+        e.set_dofs_kp(torch.full((2,), car_cfg["steer_kp"], device=device), self.steer_dofs)
+        e.set_dofs_kv(torch.full((2,), car_cfg["steer_kv"], device=device), self.steer_dofs)
+        e.set_dofs_kv(torch.full((4,), car_cfg["wheel_kv"], device=device), self.wheel_dofs)
         # cap drive torque near the traction limit; unbounded torque with a
         # P velocity controller causes wheel-slip limit cycles at high speed
-        tq = env_cfg["wheel_max_torque"]
+        tq = car_cfg["wheel_max_torque"]
         e.set_dofs_force_range(torch.full((4,), -tq, device=device),
                                torch.full((4,), tq, device=device), self.wheel_dofs)
         # steering geometry: "ackermann" (per-wheel inner/outer split, the real
         # car) or "parallel" (both hinges at the same angle, the legacy path)
-        self.steering_model = env_cfg.get("steering_model", "ackermann")
+        self.steering_model = car_cfg.get("steering_model", "ackermann")
         if self.steering_model not in ("ackermann", "parallel"):
             raise ValueError("steering_model must be 'ackermann' or 'parallel', "
                              f"got {self.steering_model!r}")
@@ -70,9 +95,14 @@ class Car:
 
     # ------------------------------------------------------- steering geometry
     def steer_targets(self, delta: torch.Tensor) -> torch.Tensor:
-        """Per-hinge angles for a commanded center angle ``(N, 1)`` → ``(N, 2)``
-        of ``[left, right]``. ``parallel`` copies; ``ackermann`` splits the
-        inner/outer angles (:func:`ackermann_angles`)."""
+        """Convert a commanded center steering angle into per-hinge angles.
+
+        Args:
+            delta: Commanded center steering angle as an ``(N, 1)`` tensor.
+
+        Returns:
+            An ``(N, 2)`` tensor of ``[left, right]`` hinge angles.
+        """
         if self.steering_model == "parallel":
             return delta.repeat(1, 2)
         left, right = ackermann_angles(delta)
@@ -80,14 +110,25 @@ class Car:
 
     # ----------------------------------------------------------- per-step control
     def drive(self, steer_center: torch.Tensor, speed: torch.Tensor) -> None:
-        """Command the front steering angle + rear-wheel speed (both ``(N, 1)``)."""
+        """Apply one control step: front steering angle and rear-wheel speed.
+
+        Args:
+            steer_center: Commanded center steering angle as an ``(N, 1)``
+                tensor.
+            speed: Commanded rear-wheel linear speed as an ``(N, 1)`` tensor.
+        """
         self.entity.control_dofs_position(self.steer_targets(steer_center), self.steer_dofs)
         wheel_omega = (speed / self.wheel_radius).repeat(1, 4)
         self.entity.control_dofs_velocity(wheel_omega, self.wheel_dofs)
 
     # ------------------------------------------------------------------- reset
     def reset_pose(self, qpos: torch.Tensor, env_ids: torch.Tensor) -> None:
-        """Teleport to ``qpos`` and zero the controllers for the given envs."""
+        """Teleport the selected envs to a pose and zero their controllers.
+
+        Args:
+            qpos: Target joint positions for the reset envs.
+            env_ids: Indices of the environments to reset.
+        """
         e = self.entity
         n = len(env_ids)
         dev = qpos.device
@@ -98,6 +139,11 @@ class Car:
 
     # -------------------------------------------------------------- kinematics
     def kinematics(self):
-        """``(pos, quat, vel, ang)`` of the base link."""
+        """Read the current base-link kinematic state.
+
+        Returns:
+            A ``(pos, quat, vel, ang)`` tuple of the base link: position,
+            orientation quaternion, linear velocity, and angular velocity.
+        """
         e = self.entity
         return e.get_pos(), e.get_quat(), e.get_vel(), e.get_ang()

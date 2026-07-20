@@ -1,25 +1,6 @@
-"""The batched DeepRacer environment on Genesis (shared base).
+"""Define the batched DeepRacer environment on Genesis (shared base).
 
-``DeepRacerEnv`` is the base class *and* the factory: constructing it dispatches
-by ``env_cfg["vision"]`` to :class:`~deepracer_genesis.envs.vision_env.VisionDeepRacerEnv`
-or :class:`~deepracer_genesis.envs.vector_env.VectorDeepRacerEnv`. The base owns
-the control/observation loop; the two subclasses differ only in the observation
-contract (camera group + image buffers). All rendering — and every ``if vision``
-branch — lives behind the injected :class:`~deepracer_genesis.envs.renderers.Renderer`
-strategy; the car behind :class:`~deepracer_genesis.envs.entities.Car`.
-
-Exposes the rsl-rl-lib 5.x VecEnv contract (TensorDict observation groups, no
-``reset()`` from the runner — done envs respawn inside ``step()``) and is wrapped
-for TorchRL by :class:`~deepracer_genesis.envs.torchrl_env.TorchRLDeepRacerEnv`.
-
-Observation groups:
-    state: ``(N, D)`` vector (:mod:`deepracer_genesis.envs.features`).
-    camera: ``(N, 3, H, W)`` float in ``[0, 1]`` (vision envs only).
-
-Actions:
-    ``(N, 2)`` normalized ``[steering, throttle]`` in ``[-1, 1]`` → DeepRacer
-    ``Box([-30deg, 0.1 m/s], [+30deg, 4.0 m/s])``; or ``(N,)`` action-table
-    indices for discrete policies.
+``DeepRacerEnv`` is both base class and factory, dispatching by ``env_cfg["vision"]``.
 """
 
 from __future__ import annotations
@@ -39,66 +20,132 @@ from ..randomization.domain_rand import randomize_physics
 
 
 class DeepRacerEnv:
+    """Batched DeepRacer sim owning the control/observation loop, and factory
+    returning a vision or vector subclass per ``env_cfg["vision"]``.
+    """
+
     def __new__(cls, num_envs: int, env_cfg: dict, show_viewer: bool = False,
                 device=None):
+        """Dispatch construction to the vision or vector subclass.
+
+        Args:
+            num_envs: Number of parallel environments to allocate.
+            env_cfg: Environment config dict; ``env_cfg["vision"]`` selects the
+                concrete subclass.
+            show_viewer: Whether to open the interactive Genesis viewer.
+            device: Torch device for the sim; defaults to the Genesis device.
+
+        Returns:
+            An uninitialized instance of the vision or vector subclass when
+            called on the base class, or of ``cls`` itself when called on a
+            subclass.
+        """
         # constructing the base dispatches to the vision/vector subclass
         if cls is DeepRacerEnv:
             from .vector_env import VectorDeepRacerEnv
             from .vision_env import VisionDeepRacerEnv
-            cls = VisionDeepRacerEnv if env_cfg["vision"] else VectorDeepRacerEnv
+            cls = VisionDeepRacerEnv if env_cfg["vision"]["vision"] else VectorDeepRacerEnv
         return object.__new__(cls)
 
     def __init__(self, num_envs: int, env_cfg: dict, show_viewer: bool = False,
                  device=None) -> None:
+        """Build the scene, car, track, renderer, and per-env buffers.
+
+        Resolves timestep/episode length and allocates state via :meth:`_init_buffers`.
+
+        Args:
+            num_envs: Number of parallel environments.
+            env_cfg: Environment config dict (timestep, decimation, track name(s),
+                camera/lookahead/reward settings, optional ``action_table``,
+                domain-randomization flags, and so on).
+            show_viewer: Whether to open the interactive Genesis viewer.
+            device: Torch device for the sim; defaults to the Genesis device.
+        """
         self.device = torch.device(device) if device is not None else gs.device
         self.cfg = env_cfg
         self.num_envs = num_envs
         self.num_actions = 2
-        self.vision = env_cfg["vision"]
+        self.vision = env_cfg["vision"]["vision"]
         # discrete action support: a (K, 2) table of [steer, speed] pairs.
         # step() accepts index tensors (N,) and looks them up — every consumer
         # (training, eval, collection) stays agnostic.
-        table = env_cfg.get("action_table")
+        table = env_cfg["action"]["action_table"]
         self.action_table = (torch.tensor(table, dtype=torch.float32,
                                           device=self.device)
                              if table else None)
 
-        self.dt = env_cfg["dt"] * env_cfg["decimation"]  # control dt
-        self.max_episode_length = math.ceil(env_cfg["episode_length_s"] / self.dt)
+        sim = env_cfg["sim"]
+        self.dt = sim["dt"] * sim["decimation"]  # control dt
+        self.max_episode_length = math.ceil(sim["episode_length_s"] / self.dt)
 
-        names = env_cfg["track"] if isinstance(env_cfg["track"], (list, tuple)) else [env_cfg["track"]]
+        track = sim["track"]
+        names = track if isinstance(track, (list, tuple)) else [track]
         self.track = MultiTrack(names, num_envs, self.device)
 
         build_scene(self, env_cfg, show_viewer)      # -> self.renderer, scene, car, track_entity
-        self.car.configure(env_cfg, self.device)
+        self.car.configure(env_cfg["car"], self.device)
         # mirror the car's dof handles on the env (domain randomization reads them)
         self.steer_dofs = self.car.steer_dofs
         self.wheel_dofs = self.car.wheel_dofs
         self.wheel_radius = self.car.wheel_radius
         self.steering_model = self.car.steering_model
-        self.renderer.finalize(self, env_cfg)        # attach cameras, appearance/obs state
+        self.renderer.finalize(self, env_cfg["vision"])   # attach cameras, appearance/obs state
         self._init_buffers(env_cfg)
 
     # ------------------------------------------------------------------ hooks
     def _init_obs_buffers(self, env_cfg: dict) -> None:
-        """Subclass hook: preallocate camera image buffers (vision only)."""
+        """Preallocate camera image buffers (subclass hook, vision only).
+
+        No-op on the base env; vision subclasses override it to size image tensors.
+
+        Args:
+            env_cfg: Environment config dict (camera resolution, etc.).
+        """
 
     def _observe_camera(self) -> None:
-        """Subclass hook: refresh the camera observation (vision only)."""
+        """Refresh the camera observation (subclass hook, vision only).
+
+        No-op on the base env; vision subclasses render the current frame here.
+        """
 
     def _obs_groups(self) -> dict:
-        """Observation groups for :meth:`get_observations` (base: state only)."""
+        """Assemble the observation groups exposed by :meth:`get_observations`.
+
+        The base emits only ``state``; vision subclasses add a ``camera`` group.
+
+        Returns:
+            Mapping from observation-group name to its tensor (base: ``state``
+            only).
+        """
         return {"state": self.state_buf}
 
     @property
     def spec_cam(self):
-        """The spectator debug camera (or None); lives on the renderer."""
+        """Return the spectator debug camera, or ``None`` if unset.
+
+        Forwards to the injected renderer so callers need not reach through it.
+
+        Returns:
+            The spectator camera handle, or ``None`` when no such camera was
+            attached.
+        """
         return self.renderer.spec_cam
 
     # ---------------------------------------------------------------- buffers
     def _init_buffers(self, env_cfg: dict) -> None:
-        """Per-env episode state (reward/termination/DR buffers, the state
-        vector) + reward-function resolution."""
+        """Allocate per-env episode state and resolve the reward function.
+
+        Sizes the ``(N, num_state_obs)`` state vector and reward/termination buffers.
+
+        Args:
+            env_cfg: Environment config dict (``lookahead_k``, ``reward_fn`` and
+                ``reward_scales``/``reward_scale_overrides``, ``emit_cost``,
+                ``cost_fn``, etc.).
+
+        Raises:
+            ValueError: If a custom reward function is supplied without explicit
+                reward scales.
+        """
         N = self.num_envs
         self.episode_length_buf = torch.zeros(N, device=self.device, dtype=torch.long)
         self.reset_buf = torch.ones(N, device=self.device, dtype=torch.bool)
@@ -113,25 +160,26 @@ class DeepRacerEnv:
         self.dir_sign = torch.ones(N, device=self.device)
         self.offtrack_buf = torch.zeros(N, device=self.device, dtype=torch.bool)
         self.flipped_buf = torch.zeros(N, device=self.device, dtype=torch.bool)
-        self.emit_cost = bool(env_cfg.get("emit_cost", False))
-        self.cost_fn = env_cfg.get("cost_fn") or "offtrack"
+        self.emit_cost = bool(env_cfg["reward"]["emit_cost"])
+        self.cost_fn = env_cfg["reward"]["cost_fn"] or "offtrack"
         if self.emit_cost:
             self.cost_buf = torch.zeros(N, device=self.device)
             self.cost_episode_sum = torch.zeros(N, device=self.device)
         self.extras = {"log": {}}
 
-        self.lookahead_k = env_cfg["lookahead_k"]
+        self.lookahead_k = env_cfg["obs"]["lookahead_k"]
         self.num_state_obs = 8 + 2 * self.lookahead_k
         self.state_buf = torch.zeros(N, self.num_state_obs, device=self.device)
         self._init_obs_buffers(env_cfg)
 
         from .rewards import deepracer
-        reward_fn = env_cfg.get("reward_fn") or deepracer   # None -> default
+        reward_cfg = env_cfg["reward"]
+        reward_fn = reward_cfg["reward"] or deepracer   # None -> default
         self.reward_terms = reward_fn
-        overrides = env_cfg.get("reward_scale_overrides", {})
+        overrides = reward_cfg["reward_scale_overrides"]
         if reward_fn is deepracer:
             # tweaks merge over the tuned defaults
-            self.reward_scales = dict(env_cfg["reward_scales"])
+            self.reward_scales = dict(reward_cfg["reward_scales"])
             self.reward_scales.update(overrides)
         else:
             # custom fn: its scales stand alone (defaults reference terms the
@@ -155,19 +203,27 @@ class DeepRacerEnv:
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
         """Advance every env by one control step (``decimation`` physics steps).
 
+        Maps actions to limits, steps physics, recomputes obs/reward/termination.
+
+        Args:
+            actions: Either ``(N, 2)`` normalized ``[steering, throttle]`` in
+                ``[-1, 1]`` or ``(N,)`` action-table indices for discrete policies.
+
         Returns:
-            ``(obs_tensordict, reward (N,), done (N,), extras)``; ``extras["log"]``
-            carries per-episode stats at reset boundaries and
-            ``extras["time_outs"]`` flags truncations.
+            A tuple ``(obs_tensordict, reward, done, extras)`` where ``reward`` and
+            ``done`` are ``(N,)`` tensors. ``extras["log"]`` carries per-episode
+            stats at reset boundaries and ``extras["time_outs"]`` flags
+            truncations.
         """
         if self.action_table is not None and actions.dim() == 1:
             actions = self.action_table[actions.long()]
         self.actions = torch.clip(actions, -1.0, 1.0)
-        steer = self.actions[:, 0:1] * math.radians(self.cfg["max_steering_deg"])
-        speed = self.cfg["min_speed"] + (self.actions[:, 1:2] + 1) * 0.5 * (
-            self.cfg["max_speed"] - self.cfg["min_speed"])
+        act = self.cfg["action"]
+        steer = self.actions[:, 0:1] * math.radians(act["max_steering_deg"])
+        speed = act["min_speed"] + (self.actions[:, 1:2] + 1) * 0.5 * (
+            act["max_speed"] - act["min_speed"])
         self.car.drive(steer, speed)
-        for _ in range(self.cfg["decimation"]):
+        for _ in range(self.cfg["sim"]["decimation"]):
             self.scene.step()
 
         self.episode_length_buf += 1
@@ -206,7 +262,15 @@ class DeepRacerEnv:
 
     # ---------------------------------------------------------- post-physics
     def _post_physics(self, env_ids: torch.Tensor | None = None) -> None:
-        """Refresh cached kinematics + track-frame quantities + observations."""
+        """Refresh cached kinematics, track-frame quantities, and observations.
+
+        Reads pose/velocity, localizes the car, and rebuilds the state vector.
+
+        Args:
+            env_ids: Envs that were just reset this step; their ``d_progress`` is
+                zeroed so a respawn does not register as forward progress. ``None``
+                updates all envs without that correction.
+        """
         pos, quat, vel, ang = self.car.kinematics()
 
         self.base_pos = pos
@@ -239,16 +303,16 @@ class DeepRacerEnv:
 
         # ---- state obs ----
         la_idx = self.track.lookahead(self.wp_idx, self.lookahead_k,
-                                      self.cfg["lookahead_stride"],
+                                      self.cfg["obs"]["lookahead_stride"],
                                       dir_sign=self.dir_sign)
         la_pts = self.track.lookahead_points(la_idx)             # (N, K, 2)
         rel = la_pts - pos[:, None, :2]
         rel_x = rel[..., 0] * cy[:, None] + rel[..., 1] * sy[:, None]
         rel_y = -rel[..., 0] * sy[:, None] + rel[..., 1] * cy[:, None]
-        la_scale = self.cfg["lookahead_scale"]
+        la_scale = self.cfg["obs"]["lookahead_scale"]
         self.state_buf = torch.cat(
             [
-                (self.v_forward / self.cfg["max_speed"]).unsqueeze(1),
+                (self.v_forward / self.cfg["action"]["max_speed"]).unsqueeze(1),
                 self.v_lateral.unsqueeze(1),
                 (self.yaw_rate / YAW_RATE_NORM).unsqueeze(1),
                 # signed offset in the car's own left/right (flips when reversed)
@@ -262,8 +326,8 @@ class DeepRacerEnv:
             ],
             dim=1,
         )
-        if self.cfg.get("obs_noise", 0.0) > 0:
-            self.state_buf += torch.randn_like(self.state_buf) * self.cfg["obs_noise"]
+        if self.cfg["obs"]["obs_noise"] > 0:
+            self.state_buf += torch.randn_like(self.state_buf) * self.cfg["obs"]["obs_noise"]
 
         self._observe_camera()
 
@@ -271,18 +335,19 @@ class DeepRacerEnv:
     def reset_idx(self, env_ids: torch.Tensor) -> None:
         """Respawn the given envs and resample their per-episode DR draws.
 
-        Spawns are random waypoints (+ lateral/yaw noise), direction is coin-
-        flipped under ``random_direction``, physics/camera-mount/world-color
-        randomizations are redrawn, and episode logs are emitted to
-        ``extras["log"]``.
+        Spawns at random waypoints, redraws randomizations, and clears counters.
+
+        Args:
+            env_ids: Indices of the envs to respawn. An empty tensor is a no-op.
         """
         n = len(env_ids)
         if n == 0:
             return
+        spawn = self.cfg["spawn"]
         pos_xy, yaw = self.track.spawn_pose(
-            env_ids, self.cfg["random_start"],
-            lateral_noise=self.cfg["spawn_lateral_noise"], yaw_noise=self.cfg["spawn_yaw_noise"])
-        if self.cfg.get("random_direction", False):
+            env_ids, spawn["random_start"],
+            lateral_noise=spawn["spawn_lateral_noise"], yaw_noise=spawn["spawn_yaw_noise"])
+        if spawn["random_direction"]:
             # coin-flip the driving direction each episode; the spawn faces the
             # chosen direction and all track-frame quantities follow it
             flip = torch.rand(n, device=self.device) < 0.5
@@ -293,12 +358,12 @@ class DeepRacerEnv:
 
         qpos = torch.zeros(n, 13, device=self.device)
         qpos[:, 0:2] = pos_xy
-        qpos[:, 2] = self.cfg["spawn_height"]
+        qpos[:, 2] = spawn["spawn_height"]
         qpos[:, 3] = torch.cos(yaw / 2)
         qpos[:, 6] = torch.sin(yaw / 2)
         self.car.reset_pose(qpos, env_ids)
 
-        if self.cfg.get("randomize", False):
+        if self.cfg["rand"]["randomize"]:
             randomize_physics(self, env_ids)
             self.renderer.randomize_mount(self, env_ids)   # camera-mount DR (Madrona only)
 
@@ -324,13 +389,33 @@ class DeepRacerEnv:
 
     # ----------------------------------------------------------- observations
     def get_observations(self) -> TensorDict:
-        """Current observation TensorDict (``state`` [+ ``camera``] groups)."""
+        """Assemble the current observation as a TensorDict.
+
+        Wraps the groups from :meth:`_obs_groups` with the batch size and device.
+
+        Returns:
+            A TensorDict of batch size ``[num_envs]`` holding the ``state`` (and,
+            on vision envs, ``camera``) observation groups.
+        """
         return TensorDict(self._obs_groups(), batch_size=[self.num_envs], device=self.device)
 
     def render_topdown(self):
-        """(N, H, W, 3) uint8 per-env bird's-eye view (validation only)."""
+        """Render a per-env top-down view for validation.
+
+        Delegates to the renderer's top-down pass.
+
+        Returns:
+            A ``(N, H, W, 3)`` uint8 tensor: one bird's-eye view per env.
+        """
         return self.renderer.topdown(self)
 
     def render_spectator(self):
-        """(H, W, 3) uint8 high-res bird's-eye view showing all envs' cars."""
+        """Render a single high-res top-down view of all envs.
+
+        Delegates to the renderer's spectator pass.
+
+        Returns:
+            An ``(H, W, 3)`` uint8 image showing every env's car in one
+            bird's-eye view.
+        """
         return self.renderer.spectator(self)

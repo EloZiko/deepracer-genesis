@@ -1,18 +1,6 @@
-"""Teleport-sweep camera dataset: place, render, record.
+"""Teleport-sweep camera dataset: place cars on a pose grid, render, record.
 
-Teleport-based, no policy or dynamics needed: the batched sim places N cars
-per step on a (waypoint x lateral offset x yaw offset) grid, renders, and
-stores frames + the privileged state — uniform coverage of the visual space,
-orders of magnitude faster than driving. Useful for representation
-pretraining, offline encoders, or auditing what the camera actually sees.
-
-    from deepracer_genesis.datasets import collect_camera_dataset
-    collect_camera_dataset(track="reinvent_base", out="datasets/reinvent",
-                           lateral_fracs=(-0.6, 0.0, 0.6), yaw_offsets=(-0.3, 0, 0.3))
-
-Output: shard_XXXX.npz files with `image` (B,H,W,3) uint8, `state` (B,28)
-float32, `pose` (B,4) float32 [x, y, yaw, progress_m], plus meta.json.
-One call = one track (Genesis builds one scene per process).
+No policy or dynamics needed; one call = one track.
 """
 
 from __future__ import annotations
@@ -40,10 +28,6 @@ def collect_camera_dataset(
 ) -> str:
     """Sweep `track` on a pose grid and write camera frames + state to `out/`.
 
-    The (waypoint x lateral offset x yaw offset) grid is rendered in batches
-    of `num_envs` teleported cars — no policy or dynamics involved (see the
-    module docstring).
-
     Args:
         track: Track name; one call = one track (Genesis builds one scene
             per process).
@@ -69,9 +53,9 @@ def collect_camera_dataset(
 
     _ensure_genesis()
     cfg = get_env_cfg(vision=True, track=track)
-    cfg["camera_res"] = tuple(resolution)
+    cfg["vision"]["camera_res"] = tuple(resolution)
     if render == "nyx":
-        cfg["vision_renderer"] = "nyx"
+        cfg["vision"]["vision_renderer"] = "nyx"
     sim = DeepRacerEnv(num_envs=num_envs, env_cfg=cfg)
     trk = sim.track.tracks[0]
     aug = ImageAug(image_aug) if image_aug else None
@@ -116,7 +100,7 @@ def collect_camera_dataset(
             qpos = torch.zeros(num_envs, 13, device=sim.device)
             qpos[:, 3] = 1.0
             qpos[:n, 0:2] = pos_xy
-            qpos[:n, 2] = sim.cfg["spawn_height"]
+            qpos[:n, 2] = sim.cfg["spawn"]["spawn_height"]
             qpos[:n, 3] = torch.cos(yaw / 2)
             qpos[:n, 6] = torch.sin(yaw / 2)
             sim.car.set_qpos(qpos)

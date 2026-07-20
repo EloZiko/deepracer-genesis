@@ -128,12 +128,8 @@ def delta_rows(records: list[EvalRecord]) -> dict[str, dict]:
 
 def build_report(root: str = "runs", out_md: str | None = None,
                  out_csv: str | None = None) -> str:
-    """Regenerate the markdown + CSV report from stored eval records.
-
-    No re-training: everything derives from the eval_record.json files under
-    `root`. The report holds the grouped combination table (plan section 5.1
-    axes, metrics mean ± std over seeds) and per-ablation-group before/after
-    delta tables (treatment - baseline; see BASELINE_HINTS).
+    """Regenerate the markdown + CSV report (combination table + ablation deltas)
+    from stored eval_record.json files, no re-training.
 
     Args:
         root: Runs directory scanned for eval_record.json files.

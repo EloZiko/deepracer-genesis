@@ -1,11 +1,4 @@
-"""TorchRL transforms realizing the DR stages (plan section 1.3).
-
-Contract per torchrl 0.13.2 (cheat-sheet section 6): observation transforms
-override `_apply_transform` (+ the `_reset` boilerplate so out_keys exist
-after reset); action transforms override `_inv_apply_transform` and run
-before base_env.step; stateful per-sub-env buffers reset via the "_reset"
-mask, with `_reset_on_native_autoreset` aliased for our autoreset flag.
-"""
+"""TorchRL transforms realizing the DR stages (plan section 1.3)."""
 
 from __future__ import annotations
 
@@ -28,20 +21,21 @@ _YIQ2RGB = torch.tensor([[1.0, 0.956, 0.621],
 class ImageAug(Transform):
     """Per-step image-space DR on a float [0,1] (*B, C, H, W) key.
 
-    All parameters resample every call (i.e. every env step), independently
-    per sub-env. Config keys: brightness=(lo,hi) contrast=(lo,hi) hue=max_frac
-    saturation=(lo,hi) blur=max_sigma cutout=prob noise=sigma.
+    Params (brightness/contrast/saturation/hue/blur/cutout/noise) resample per step per sub-env.
     """
 
     def __init__(self, aug: dict, in_keys=("camera",), out_keys=None):
+        """Store the augmentation config; default out_keys to in_keys."""
         out_keys = list(out_keys or in_keys)
         super().__init__(in_keys=list(in_keys), out_keys=out_keys)
         self.aug = dict(aug)
 
     def _u(self, lo, hi, n, device):
+        """Sample n broadcastable uniforms in [lo, hi)."""
         return lo + (hi - lo) * torch.rand(n, 1, 1, 1, device=device)
 
     def _apply_transform(self, img: torch.Tensor) -> torch.Tensor:
+        """Apply the sampled augmentations and clamp back to [0, 1]."""
         lead = img.shape[:-3]
         c, h, w = img.shape[-3:]
         x = img.reshape(-1, c, h, w).clone()
@@ -85,6 +79,7 @@ class ImageAug(Transform):
 
     @staticmethod
     def _gaussian_kernel(sigma: float, device) -> torch.Tensor:
+        """Build a normalized 2D gaussian conv kernel for the given sigma."""
         radius = max(1, int(2 * sigma))
         xs = torch.arange(-radius, radius + 1, device=device, dtype=torch.float32)
         k1 = torch.exp(-(xs ** 2) / (2 * sigma ** 2))
@@ -93,6 +88,7 @@ class ImageAug(Transform):
 
     @staticmethod
     def _cutout(x: torch.Tensor, active: torch.Tensor) -> torch.Tensor:
+        """Zero a random rectangle in each active sub-env's image."""
         n, _, h, w = x.shape
         dev = x.device
         ph = torch.randint(h // 6, h // 3 + 1, (n,), device=dev)
@@ -107,6 +103,7 @@ class ImageAug(Transform):
         return x * keep.unsqueeze(1)
 
     def _reset(self, tensordict, tensordict_reset):
+        """Populate out_keys on the reset tensordict."""
         with _set_missing_tolerance(self, True):
             return self._call(tensordict_reset)
 
@@ -116,14 +113,12 @@ class ImageAug(Transform):
 class FrozenEncoder(Transform):
     """Run a frozen module over an obs key, write a new key, drop the raw one.
 
-    Modeled on torchrl's _R3MNet (the canonical frozen-representation
-    transform); the raw camera key is deleted from the carried tensordict and
-    the spec — the vector policy downstream never sees pixels, and the
-    collector stops hauling (N,3,H,W) frames it doesn't need.
+    The raw camera key is deleted from tensordict and spec so downstream never carries pixels.
     """
 
     def __init__(self, encoder, embed_dim: int, in_keys=("camera",),
                  out_keys=("encoded",), del_keys: bool = True):
+        """Freeze the encoder and record the output embedding dim."""
         super().__init__(in_keys=list(in_keys), out_keys=list(out_keys))
         encoder.eval()
         encoder.requires_grad_(False)
@@ -133,11 +128,13 @@ class FrozenEncoder(Transform):
 
     @torch.no_grad()
     def _apply_transform(self, obs: torch.Tensor) -> torch.Tensor:
+        """Encode the obs batch into an embed_dim vector per element."""
         lead = obs.shape[:-3]
         out = self.encoder(obs.reshape(-1, *obs.shape[-3:]))
         return out.reshape(*lead, self.embed_dim)
 
     def _call(self, next_tensordict):
+        """Encode then drop the raw in_keys when del_keys is set."""
         next_tensordict = super()._call(next_tensordict)
         if self.del_keys:
             next_tensordict = next_tensordict.exclude(*self.in_keys)
@@ -146,12 +143,14 @@ class FrozenEncoder(Transform):
     forward = _call
 
     def _reset(self, tensordict, tensordict_reset):
+        """Populate out_keys on the reset tensordict."""
         with _set_missing_tolerance(self, True):
             return self._call(tensordict_reset)
 
     _reset_on_native_autoreset = _reset
 
     def transform_observation_spec(self, observation_spec):
+        """Replace the raw camera spec with the embedding spec."""
         from torchrl.data import Unbounded
         observation_spec = observation_spec.clone()
         ref = observation_spec[self.in_keys[0]]
@@ -168,13 +167,12 @@ class FrozenEncoder(Transform):
 class ActionNoiseDelay(Transform):
     """Actuation DR: k-step command latency, then per-channel gaussian noise.
 
-    Runs on the inverse (action) path before base_env.step. The delay ring
-    buffer holds the last k commands per sub-env; freshly reset sub-envs
-    start from a zeroed buffer (neutral steering, mid throttle).
+    Runs on the inverse action path; the ring buffer holds the last k commands, zeroed on reset.
     """
 
     def __init__(self, n_envs: int, steer_noise=0.0, speed_noise=0.0,
                  delay_steps=0, device="cuda"):
+        """Configure noise scales and allocate the per-env delay buffer."""
         super().__init__(in_keys_inv=["action"], out_keys_inv=["action"])
         self.steer_noise = steer_noise
         self.speed_noise = speed_noise
@@ -184,6 +182,7 @@ class ActionNoiseDelay(Transform):
                 "buf", torch.zeros(n_envs, self.delay_steps, 2, device=device))
 
     def _inv_apply_transform(self, action: torch.Tensor) -> torch.Tensor:
+        """Delay via the ring buffer, add noise, clamp to [-1, 1]."""
         out = action
         if self.delay_steps > 0:
             out = self.buf[:, -1].clone()
@@ -195,6 +194,7 @@ class ActionNoiseDelay(Transform):
         return (out + noise).clamp(-1.0, 1.0)
 
     def _reset(self, tensordict, tensordict_reset):
+        """Zero the delay buffer for freshly reset sub-envs."""
         if self.delay_steps > 0:
             mask = _get_reset("_reset", tensordict).reshape(-1)
             self.buf[mask] = 0.0

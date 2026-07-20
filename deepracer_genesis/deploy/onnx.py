@@ -1,27 +1,6 @@
-"""Export trained policies to ONNX + a JSON model card.
+"""Export trained policies to ONNX plus a JSON model card, rebuilt on CPU.
 
-    from deepracer_genesis.deploy import export_policy
-    export_policy("feature_baseline")                 # -> run_dir/export/
-    export_policy("CamRacer", out="deploy/cam_racer") # explicit destination
-
-Produces:
-  policy.onnx       the ACTOR only, deterministic head:
-                      continuous -> outputs `action` (B, 2) = tanh(loc),
-                                    normalized [steer, speed] in [-1, 1]
-                      discrete   -> outputs `logits` (B, K); argmax is the
-                                    action index into the card's action table
-                    inputs are plain tensors named after the obs keys
-                    ("state" (B, 8+2K) float32, "camera" (B, 3, H, W)
-                    float32 in [0, 1] — whatever the actor consumes)
-  model_card.json   everything needed to run it correctly: observation
-                    definitions (camera resolution/FOV, state layout),
-                    action space (continuous bounds + physical mapping, or
-                    the discrete action table), the full training spec,
-                    final eval metrics, and file hashes.
-
-Runs WITHOUT genesis: the network is rebuilt on CPU straight from the spec
-(genesis + onnxruntime share LLVM symbols and crash in one process, and the
-export target is CPU/edge hardware anyway).
+Runs without genesis (it shares clashing LLVM symbols with onnxruntime).
 """
 
 from __future__ import annotations
@@ -63,9 +42,7 @@ def state_layout(spec: ExperimentSpec) -> str:
 
 
 class _ExportActor(nn.Module):
-    """The actor rebuilt as a plain nn.Module: optional CNN on the camera,
-    obs concatenated in actor_keys order into the MLP head, deterministic
-    output (tanh(loc) continuous / logits discrete)."""
+    """Actor rebuilt as a plain nn.Module with a deterministic head."""
 
     def __init__(self, spec: ExperimentSpec, cnn: Optional[ConvNet], mlp: MLP):
         super().__init__()
@@ -93,12 +70,7 @@ def _sub_state_dict(sd: dict, prefix: str) -> dict:
 
 
 def _rebuild_actor(spec: ExperimentSpec, actor_sd: dict) -> _ExportActor:
-    """Mirror Builder.actor()'s module shapes on CPU and load the weights.
-
-    Checkpoint layout (ProbabilisticActor -> TensorDictSequential of
-    TensorDictModules): 'module.0.module.<i>.module.<param>' where i=0 is
-    the CNN when the policy has one, and the MLP is the last param stage.
-    """
+    """Mirror Builder.actor()'s module shapes on CPU and load the weights."""
     p = spec.policy
     discrete = p.actions is not None
     out_features = len(p.actions) if discrete else 4      # loc+scale
@@ -137,8 +109,7 @@ def export_policy(target, *, root: str = "runs", ckpt: Optional[str] = None,
                   **overrides) -> str:
     """Export `target`'s trained actor to ONNX + model_card.json.
 
-    `target` is any experiment handle; the checkpoint resolves from its run
-    directory unless `ckpt` is given. Returns the export directory.
+    Returns the export directory.
     """
     import sys
     if "genesis" in sys.modules:

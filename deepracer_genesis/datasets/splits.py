@@ -1,21 +1,6 @@
-"""ML-style track splits: train/test + a by-name holdout.
+"""Deterministic ML-style train/test track split with a by-name holdout.
 
-Treat tracks like a dataset: a deterministic train/test split over every
-registered track, with named tracks held out entirely (e.g. the ones you
-physically printed) for post-training real-world-proxy evaluation:
-
-    from deepracer_genesis.datasets import TrackDataset
-
-    ds = TrackDataset()                       # default holdout: the printed ones
-    ds = TrackDataset(holdout=("reinvent_base", "Oval_track", "Monaco"),
-                      test_fraction=0.25, seed=7)
-
-    ds.train      # e.g. train a multi-track curriculum / collect training data
-    ds.test       # unseen-track generalization during development
-    ds.holdout    # NEVER trained or tuned on — final evaluation only
-
-The split is deterministic in (names, holdout, test_fraction, seed) and
-independent of registration order.
+Depends only on (names, holdout, test_fraction, seed), not registration order.
 """
 
 from __future__ import annotations

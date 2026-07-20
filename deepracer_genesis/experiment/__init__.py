@@ -1,9 +1,6 @@
-"""Config-as-code experiment framework (plan section 0-2).
+"""Config-as-code experiment framework composing stages into frozen specs.
 
-Authoring is Python: experiments are functions or `Experiment` classes that
-compose stages with `>>` into a frozen `ExperimentSpec`. This package's
-declaration layer imports no torch/genesis; the heavy imports live in
-`builder`/`trainer`, loaded lazily by `run()`.
+The declaration layer imports no torch/genesis; heavy imports load lazily via `run()`.
 """
 
 from .spec import (

@@ -1,6 +1,5 @@
-"""Training algorithms: the Algorithm protocol, its registry, and the
-shipped implementations (PPO, PPO-Lagrangian). See protocol.py for the guide
-to writing your own; rsl_rl.py holds the legacy rsl-rl-lib integration."""
+"""Training algorithms: the Algorithm protocol, its registry, and shipped
+implementations (PPO, PPO-Lagrangian)."""
 
 from .lagrangian import PIDLagrangian, PPOLagrangian
 from .ppo import PPO

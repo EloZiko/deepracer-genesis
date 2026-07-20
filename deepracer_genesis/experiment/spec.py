@@ -1,11 +1,5 @@
-"""ExperimentSpec: the frozen value the `>>` DSL builds (plan section 2).
-
-Identity is content: `id()` hashes the spec, so identical configs share a run
-directory and any field change produces a new one. Runs are never result-cached
-— re-running retrains and overwrites. `to_dict()` is a ONE-WAY dump used for the
-hash and the run record; nothing in the authoring path ever loads a spec back
-from a file.
-"""
+"""Frozen ExperimentSpec value the `>>` DSL builds, hashed by content into a
+run id (identical configs share a run dir; runs retrain and overwrite)."""
 
 from __future__ import annotations
 
@@ -20,9 +14,8 @@ if TYPE_CHECKING:
 
 
 def _json_default(o):
-    """Record a pluggable callable/class (reward fn, later algorithm/feature)
-    by its NAME — never by value — so the spec dump stays JSON + the run-dir id
-    stays stable/readable."""
+    """Record a pluggable callable/class by its name so the spec dump stays
+    JSON and the run-dir id stays stable."""
     return getattr(o, "__qualname__", None) or getattr(o, "__name__", None) or repr(o)
 
 
@@ -106,9 +99,8 @@ class ActionDRSpec:
 
 @dataclass(frozen=True)
 class AlgorithmSpec:
-    """Training-algorithm slice. `kind` selects a registered Algorithm
-    implementation (see deepracer_genesis.algorithms) — "ppo" and
-    "ppo_lagrangian" ship; custom kinds resolve at build time."""
+    """Training-algorithm slice; `kind` selects a registered Algorithm
+    implementation (e.g. "ppo", "ppo_lagrangian", or a custom kind)."""
 
     kind: str = "ppo"
     ppo: dict = field(default_factory=dict)
@@ -137,10 +129,8 @@ class ExperimentSpec:
         return json.loads(json.dumps(asdict(self), default=_json_default))
 
     def id(self) -> str:
-        """Content-hash identity (sha1 of the config JSON). Two specs with the
-        same training-relevant fields share an id — and therefore a run
-        directory (they retrain and overwrite; results are not cached). Tags
-        (ablation_group/variant) are excluded: labels, not config."""
+        """Content-hash identity (sha1 of the config JSON, excluding the
+        ablation_group/variant tags) so equal configs share a run dir."""
         # sha1, NOT built-in hash(): identity must be stable across processes.
         # ablation_group/variant are bookkeeping tags, not configuration —
         # the same training config keeps one id however it is tagged.

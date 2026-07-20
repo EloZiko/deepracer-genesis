@@ -1,8 +1,4 @@
-"""Train a DeepRacer policy with rsl-rl PPO on Genesis.
-
-  python -m deepracer_genesis.train -B 1024 --max_iterations 300
-  python -m deepracer_genesis.train -B 256 --vision --randomize --max_iterations 500
-"""
+"""Train a DeepRacer policy with rsl-rl PPO on Genesis."""
 
 import argparse
 import os
@@ -11,6 +7,7 @@ import genesis as gs
 
 
 def main():
+    """Parse CLI args and run PPO training on the DeepRacer env."""
     parser = argparse.ArgumentParser()
     parser.add_argument("-B", "--num_envs", type=int, default=1024)
     parser.add_argument("--max_iterations", type=int, default=300)
@@ -34,7 +31,7 @@ def main():
         args.vision = True
     env_cfg = get_env_cfg(vision=args.vision, track=args.track, randomize=args.randomize)
     if args.nyx:
-        env_cfg["vision_renderer"] = "nyx"
+        env_cfg["vision"]["vision_renderer"] = "nyx"
     log_dir = os.path.join("logs", args.exp_name)
     env = DeepRacerEnv(num_envs=args.num_envs, env_cfg=env_cfg)
     runner = build_runner(env, vision=args.vision, log_dir=log_dir,

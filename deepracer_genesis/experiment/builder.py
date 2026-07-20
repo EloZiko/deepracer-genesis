@@ -1,10 +1,6 @@
-"""Builder: ExperimentSpec -> live Genesis sim + TorchRL objects (plan §3).
+"""Build an ExperimentSpec into a live Genesis sim plus TorchRL objects.
 
-The only layer that imports the heavy stuff. All APIs verified against the
-installed torchrl 0.13.2 (see /tmp/torchrl_cheatsheet.md); notable version
-facts baked in: Collector (SyncDataCollector was removed), entropy_coeff
-spelling, TanhNormal(low/high), action_log_prob key, GAE runs on the [N, T]
-collector output directly.
+The only layer that imports the heavy dependencies.
 """
 
 from __future__ import annotations
@@ -53,10 +49,7 @@ def _ensure_genesis():
 class Builder:
     """Turn a validated ExperimentSpec into live Genesis + TorchRL objects.
 
-    The only layer that imports the heavy stuff. The sim is built once and
-    cached on the instance; every other product (env, actor, critic, GAE,
-    loss, collector, buffer, optimizer, frozen encoder) derives from the
-    spec and that sim.
+    The sim is built once and cached; every other product derives from it.
 
     Args:
         spec: The experiment spec; validated on construction.
@@ -76,30 +69,31 @@ class Builder:
         track = list(env.tracks) if len(env.tracks) > 1 else env.tracks[0]
         cfg = get_env_cfg(vision=(env.modality == "camera"), track=track,
                           randomize=randomize)
-        cfg["camera_res"] = tuple(env.resolution)
-        cfg["camera_fov"] = env.fov
-        cfg["lookahead_k"] = env.lookahead_k
-        cfg["random_start"] = env.random_start
-        cfg["random_direction"] = env.random_direction
-        cfg["feature_set"] = env.feature_set
-        cfg["feature_params"] = dict(env.feature_params)
-        cfg["reward_fn"] = env.reward   # a callable (or None -> deepracer default)
-        cfg["reward_scale_overrides"] = dict(env.reward_scales)
+        cfg["vision"]["camera_res"] = tuple(env.resolution)
+        cfg["vision"]["camera_fov"] = env.fov
+        cfg["obs"]["lookahead_k"] = env.lookahead_k
+        cfg["obs"]["feature_set"] = env.feature_set
+        cfg["obs"]["feature_params"] = dict(env.feature_params)
+        cfg["spawn"]["random_start"] = env.random_start
+        cfg["spawn"]["random_direction"] = env.random_direction
+        cfg["reward"]["reward"] = env.reward   # a callable (or None -> deepracer default)
+        cfg["reward"]["reward_scale_overrides"] = dict(env.reward_scales)
         if env.render == "nyx":
-            cfg["vision_renderer"] = "nyx"
+            cfg["vision"]["vision_renderer"] = "nyx"
         if randomize:
             rand = dict(_NEUTRAL_PHYSICS)
             rand.update(obs_dr.physics)
             rand["camera_pitch_jitter_deg"] = obs_dr.camera_jitter.get("pitch_deg", 0.0)
             rand["camera_pos_jitter_m"] = obs_dr.camera_jitter.get("pos_m", 0.0)
+            rand["randomize"] = True
             cfg["rand"] = rand
         if obs_dr.appearance:
-            cfg["appearance"] = dict(obs_dr.appearance)
+            cfg["vision"]["appearance"] = dict(obs_dr.appearance)
         if self.spec.policy is not None and self.spec.policy.actions:
-            cfg["action_table"] = [list(a) for a in self.spec.policy.actions]
+            cfg["action"]["action_table"] = [list(a) for a in self.spec.policy.actions]
         if env.emits_cost:
-            cfg["emit_cost"] = True
-            cfg["cost_fn"] = env.cost_fn
+            cfg["reward"]["emit_cost"] = True
+            cfg["reward"]["cost_fn"] = env.cost_fn
         return cfg
 
     def sim(self, extra_cfg: dict | None = None) -> DeepRacerEnv:
@@ -139,10 +133,7 @@ class Builder:
         return ts
 
     def env(self) -> "TorchRLDeepRacerEnv | TransformedEnv":
-        """The TorchRL training env.
-
-        Collection-side only; evaluation drives the raw sim (see
-        evaluator.evaluate_policy).
+        """Build the collection-side TorchRL training env.
 
         Returns:
             The wrapper around the sim, inside a TransformedEnv when the
@@ -159,8 +150,7 @@ class Builder:
 
     # ----------------------------------------------------------- models
     def _mlp(self, in_features: int, out_features: int) -> MLP:
-        """Fused MLP head per the spec's mlp config (concatenates multiple
-        positional inputs — the multi-key mechanism)."""
+        """Build the fused MLP head per the spec's mlp config."""
         p = self.spec.policy.mlp
         return MLP(in_features=in_features, out_features=out_features,
                    num_cells=list(p.get("hidden", (256, 128, 64))),
@@ -192,10 +182,10 @@ class Builder:
             return cnn(torch.zeros(1, 3, h, w, device=self.sim().device)).shape[-1]
 
     def _head(self, keys, dims, cam_feat_key):
-        """Trunk for one network: optional CNN on 'camera' feeding a fused MLP.
+        """Build one network trunk: optional CNN on 'camera' feeding a fused MLP.
 
-        Returns (modules, head_in_keys): `modules` start the TensorDictSequential;
-        vector keys (+ the CNN feature key) concat inside the MLP head.
+        Returns:
+            (modules, head_keys, in_dim) for the TensorDictSequential head.
         """
         modules = []
         head_keys = []
@@ -213,12 +203,9 @@ class Builder:
         return modules, head_keys, in_dim
 
     def actor(self) -> ProbabilisticActor:
-        """Actor over spec.policy.actor_keys.
+        """Build the actor over spec.policy.actor_keys.
 
-        (camera via CNN trunk) + vector keys fused in the MLP head.
-        Continuous => TanhNormal over [steer, speed]; policy.actions set =>
-        Categorical over that list (indices; the sim looks up the
-        (steer, speed) pair).
+        TanhNormal over [steer, speed], or Categorical when policy.actions is set.
 
         Returns:
             The ProbabilisticActor (exploration type RANDOM; evaluation
@@ -305,9 +292,7 @@ class Builder:
     def encoder_module(self) -> tuple[nn.Module, int]:
         """Rebuild the checkpointed camera actor's trunk as a frozen encoder.
 
-        Output = activations of the actor-MLP hidden layer whose width equals
-        spec.encoder.output_dim (e.g. 256 with the default (256,128,64) MLP);
-        the CNN and the MLP prefix up to that layer are loaded and frozen.
+        Loads the CNN and MLP prefix up to the hidden layer of width output_dim.
         """
         enc = self.spec.encoder
         ckpt = torch.load(enc.checkpoint, map_location=self.sim().device,

@@ -1,7 +1,4 @@
-"""Rollout dataset: a scripted agent drives, frames + features are recorded.
-
-See collect_rollout_dataset below; agents live in deepracer_genesis.agents.
-"""
+"""Record (frame, feature-vector) rollouts as a scripted agent drives."""
 
 from __future__ import annotations
 
@@ -24,39 +21,8 @@ def collect_rollout_dataset(
     seed: int = 0,
     compress: bool = True,
 ) -> str:
-    """Record temporally-contiguous (frame, feature-vector) rollout sequences.
-
-    A noisy PRIVILEGED expert drives under the pipeline's DR while frames and
-    aligned features are recorded. Typical use — a `>>` chain whose env and
-    DR stages define what gets collected:
-
-        from deepracer_genesis.experiment import (CameraEnvironment,
-            DomainRandomizationCamera, DomainRandomizationPhysics,
-            DomainRandomizationTrackAppearance)
-        from deepracer_genesis.datasets import collect_rollout_dataset
-
-        collect_rollout_dataset(
-            CameraEnvironment(resolution=(160, 120), num_envs=16)
-            >> DomainRandomizationTrackAppearance(strength=0.6)
-            >> DomainRandomizationCamera(brightness=(0.7, 1.3), hue=0.05)
-            >> DomainRandomizationPhysics(),
-            out="datasets/reinvent_rollouts", steps=4096)
-
-    Output layout: parquet shards, rows sorted (env, t) — env-major and
-    time-contiguous, so a k-frame stack is k consecutive rows of one env:
-
-        rollout_XXXX.parquet columns:
-            env int16, t int32, episode int32   temporal bookkeeping
-            done bool                           True at the LAST step of an episode
-            image binary                        PNG, HxWx3 — the policy camera
-                                                view AFTER world-color + image-aug
-            state list<float32>[28]             aligned privileged feature vector
-            action list<float32>[2]             expert action actually applied
-            pose  list<float32>[4]              [x, y, yaw, progress_m]
-        meta.json (shapes, dt, DR config, seed).
-
-    A k-stack window (env e, ending at t) is valid iff all k rows share the
-    same `episode` value — no window ever crosses a respawn.
+    """Record temporally-contiguous (frame, feature-vector) rollout sequences
+    to parquet shards sorted (env, t) as a privileged expert drives under DR.
 
     Args:
         target: Any experiment handle — most usefully a `>>` chain (Stage or

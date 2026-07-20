@@ -1,14 +1,6 @@
-"""Visual verification tools: policy rollout videos and a DR preview.
+"""Visual verification tools: deterministic policy rollout videos and a DR preview.
 
-    from deepracer_genesis.experiment.visualize import rollout_video
-    rollout_video("feature_baseline")                       # its own track
-    rollout_video("feature_baseline", track="reInvent2019_track")
-
-Videos are the spectator view (bird's-eye, every parallel car in one frame,
-true colors via the rasterizer) plus, for camera policies, the onboard feed
-of env 0. Rollouts are deterministic (mean action) and metrics are printed,
-so "is the car actually driving well on track X?" gets both an answer and
-footage.
+Videos pair the bird's-eye spectator view with the onboard feed of env 0.
 """
 
 from __future__ import annotations
@@ -42,11 +34,7 @@ def rollout_video(target, *, root: str = "runs", ckpt: Optional[str] = None,
                   num_envs: Optional[int] = None, out: Optional[str] = None,
                   spectator_res: tuple = (1280, 960),
                   **overrides) -> str:
-    """Record a deterministic rollout of a trained experiment.
-
-    Evaluation runs under NOMINAL conditions (no image aug, no action
-    noise/delay, no physics randomization) — the footage shows the policy,
-    not the DR. Eval metrics are printed.
+    """Record a deterministic rollout of a trained experiment under nominal conditions.
 
     Args:
         target: Any experiment handle (registered name / function / class /
@@ -150,11 +138,6 @@ def dr_preview_video(target="cam_baseline", *, steps: int = 300,
                      num_envs: int = 8, out: str = "runs/dr_preview",
                      **overrides) -> str:
     """Show the domain randomization in action, no trained policy needed.
-
-    A privileged P-controller drives; the output pairs the RAW onboard camera
-    with the AUGMENTED frame the policy would see (side by side), plus the
-    spectator view where per-episode random respawns are visible. Physics DR
-    (per-env friction/mass/COM/gains) resamples at every reset underneath.
 
     Args:
         target: Experiment handle; must be a camera experiment with

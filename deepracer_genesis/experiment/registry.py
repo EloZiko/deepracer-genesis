@@ -1,8 +1,6 @@
 """Name registry + Experiment base class (plan section 1.2).
 
 A registered name is a handle to Python code, not a config file path.
-Functions register via @experiment; Experiment subclasses auto-register
-under their class name.
 """
 
 from __future__ import annotations
@@ -15,8 +13,6 @@ REGISTRY: dict[str, Union[Callable, type]] = {}
 def experiment(fn=None, *, name: str | None = None):
     # (decorator) register a zero-arg spec factory under `name` or fn.__name__
     """Register an experiment-building function under its (or a given) name.
-
-    Usable bare (`@experiment`) or parameterized (`@experiment(name="foo")`).
 
     Args:
         fn: The zero-arg spec factory (filled in automatically in the bare
@@ -40,33 +36,8 @@ def experiment(fn=None, *, name: str | None = None):
 
 
 class Experiment:
-    """Class idiom for authoring experiments.
-
-    A single file defines the whole run: hyperparameters as class
-    attributes, the env/DR/policy pipeline in pipeline(), and
-    `MyExp().run()` executes it.
-
-    A variant is a subclass with one attribute overridden, or an instance
-    with keyword overrides:
-
-        class SafeTransferTight(SafeTransfer): budget = 10.0
-        SafeTransfer(budget=10.0, seed=3)
-
-    Subclasses auto-register under their class name (prefix with '_' to opt
-    out). Implement EITHER pipeline() — returning the `>>` chain, finalized
-    with the standard attributes automatically — or spec() for full control.
-    Runnable-single-file pattern (see experiments/template.py):
-
-        if __name__ == "__main__":
-            MyExperiment().run()
-
-    Attributes:
-        seed: Training seed.
-        total_env_steps: Total environment steps to train for.
-        eval_every_steps: Periodic-evaluation cadence in env steps
-            (0 = final eval only).
-        ablation_group: Group tag for the reporter's delta tables.
-        variant: Variant tag within the group; defaults to the class name.
+    """Author an experiment as a single file: hyperparameters as class
+    attributes, the pipeline in pipeline(), and `MyExp().run()` to execute.
     """
 
     # ---- standard training configuration (overridable per subclass) ----
@@ -101,10 +72,8 @@ class Experiment:
 
     # ------------------------------------------------------------------
     def pipeline(self) -> "Stage | Pipeline":
-        """Return the `>>` stage chain (NOT built).
-
-        The standard attributes (seed, total_env_steps, ...) are applied by
-        spec() afterwards.
+        """Return the `>>` stage chain (NOT built); spec() finalizes it with
+        the standard attributes afterwards.
 
         Returns:
             The Stage or Pipeline defining the experiment.
@@ -117,11 +86,8 @@ class Experiment:
             f"{type(self).__name__} must implement pipeline() or spec()")
 
     def spec(self) -> ExperimentSpec:
-        """Build the final ExperimentSpec.
-
-        The default implementation finalizes pipeline() with the standard
-        attributes (seed, total_env_steps, eval_every_steps, ablation_group,
-        variant); override for full control over spec construction.
+        """Build the final ExperimentSpec by finalizing pipeline() with the
+        standard attributes; override for full control over construction.
 
         Returns:
             The validated ExperimentSpec.

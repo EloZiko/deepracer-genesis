@@ -1,17 +1,6 @@
-"""Rendering strategy for the DeepRacer env.
+"""Pluggable rendering strategies for the DeepRacer env.
 
-The env holds ONE ``Renderer`` and never branches on ``vision`` itself: the
-strategy decides whether there is a camera observation, which Genesis scene
-renderer to use, how to build the cameras/lights/sensors, how to produce the
-per-step image, and how to render the debug (spectator / top-down) views.
-
-- :class:`NullRenderer` — feature / no-vision. No camera observation; the
-  optional spectator debug view still works (rasterizer). Top-down is
-  vision-only.
-- :class:`MadronaRenderer` — batch-renderer camera obs (+ camera-mount DR).
-- :class:`NyxRenderer` — Nyx path-tracer sensor obs (true texture colors).
-
-``make_renderer(env_cfg)`` picks the strategy from the config.
+The env holds ONE ``Renderer``; the strategy owns every vision decision.
 """
 
 from __future__ import annotations
@@ -37,11 +26,34 @@ _YIQ2RGB = torch.tensor([[1.0, 0.956, 0.621],
 
 
 def _u(lo, hi, shape, device):
+    """Draw a uniform sample on ``[lo, hi)`` of the requested shape and device.
+
+    Args:
+        lo: Lower bound of the uniform range.
+        hi: Upper (exclusive) bound of the uniform range.
+        shape: Shape of the tensor to fill.
+        device: Torch device to allocate the sample on.
+
+    Returns:
+        A tensor of the given shape with values drawn uniformly from
+        ``[lo, hi)``.
+    """
     return lo + (hi - lo) * torch.rand(shape, device=device)
 
 
 def camera_offset_T(pitch_deg: float) -> np.ndarray:
-    """camera_link frame → Genesis camera frame (camera looks along -z)."""
+    """Build the mount transform from the ``camera_link`` frame to the camera.
+
+    Maps into the Genesis camera frame (-z), pitching down by ``pitch_deg``.
+
+    Args:
+        pitch_deg: Downward pitch of the view in degrees; positive values tilt
+            the camera toward the ground.
+
+    Returns:
+        A (4, 4) homogeneous transform from the ``camera_link`` frame to the
+        Genesis camera frame, including the pitch rotation.
+    """
     base = np.array([
         [0.0, 0.0, -1.0],
         [-1.0, 0.0, 0.0],
@@ -59,23 +71,49 @@ def camera_offset_T(pitch_deg: float) -> np.ndarray:
 
 
 def _track_extent(track):
-    """``(center_xy, max_extent)`` of a Track's centerline."""
+    """Compute the centroid and bounding extent of a track's centerline.
+
+    Used to place bird's-eye cameras so a whole track variant fits in frame.
+
+    Args:
+        track: A Track whose ``center`` centerline points are inspected.
+
+    Returns:
+        A pair ``(center_xy, max_extent)`` where ``center_xy`` is the mean
+        centerline position and ``max_extent`` is the larger of the two
+        centerline bounding-box side lengths.
+    """
     c = track.center.mean(dim=0)
     extent = (track.center.max(dim=0).values - track.center.min(dim=0).values).max()
     return c, extent
 
 
-def make_renderer(env_cfg: dict) -> "Renderer":
-    """Pick the rendering strategy from the config."""
-    if not env_cfg["vision"]:
+def make_renderer(vision_cfg: dict) -> "Renderer":
+    """Select and instantiate the rendering strategy from the env config.
+
+    ``vision`` off returns :class:`NullRenderer`; else Nyx or default Madrona.
+
+    Args:
+        vision_cfg: Env config; ``vision`` gates whether any camera renderer is
+            built, and ``vision_renderer`` (``"batch"`` default, or ``"nyx"``)
+            picks the vision backend.
+
+    Returns:
+        The renderer strategy matching the config: :class:`NullRenderer`,
+        :class:`NyxRenderer`, or :class:`MadronaRenderer`.
+    """
+    if not vision_cfg["vision"]:
         return NullRenderer()
-    if env_cfg.get("vision_renderer", "batch") == "nyx":
+    if vision_cfg.get("vision_renderer", "batch") == "nyx":
         return NyxRenderer()
     return MadronaRenderer()
 
 
 class Renderer:
-    """Base strategy: no camera observation, optional spectator debug view."""
+    """Base rendering strategy: no camera observation, optional debug view.
+
+    Defines the strategy interface the env drives across its lifecycle.
+    """
 
     has_camera: bool = False
     merge_fixed_links: bool = True
@@ -83,72 +121,168 @@ class Renderer:
     _spectator_debug: bool = False
 
     def scene_renderer(self):
-        """The Genesis scene renderer (BatchRenderer only for Madrona obs)."""
+        """Return the Genesis scene renderer this strategy requires.
+
+        Returns:
+            A Madrona ``BatchRenderer`` (rasterizer-backed) when this strategy
+            needs batched camera observations, otherwise a plain
+            ``Rasterizer``.
+        """
         return (gs.renderers.BatchRenderer(use_rasterizer=True)
                 if self._scene_batch_renderer else gs.renderers.Rasterizer())
 
     # ---------------------------------------------------------- build lifecycle
-    def build(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
-        """Pre-build: add cameras / lights / sensors to ``env.scene``."""
+    def build(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Add cameras / lights / sensors to the scene before it is built.
+
+        Sets up the shared spectator camera, then delegates to :meth:`_build`.
+
+        Args:
+            env: The env being built; its ``scene`` and ``track`` are used to
+                place the spectator camera.
+            vision_cfg: Env config; ``spectator`` enables the debug camera and
+                ``spectator_res`` sets its resolution.
+        """
         self.spec_cam = None
-        if env_cfg.get("spectator", False):
+        if vision_cfg.get("spectator", False):
             # high-res bird's-eye view (rasterizer, true colors, all cars in one
             # image). With a BatchRenderer active it must be a debug camera to
             # stay off the batch pipeline (Madrona sets _spectator_debug=True).
             c, extent = _track_extent(env.track.tracks[0])
             c = c.cpu().numpy()
-            sw, sh = env_cfg.get("spectator_res", (1280, 960))
+            sw, sh = vision_cfg.get("spectator_res", (1280, 960))
             self.spec_cam = env.scene.add_camera(
                 res=(sw, sh),
                 pos=(float(c[0]), float(c[1]), float(extent) * 1.1),
                 lookat=(float(c[0]), float(c[1]), 0.0),
                 up=(0.0, 1.0, 0.0), fov=60, GUI=False, debug=self._spectator_debug)
-        self._build(env, env_cfg)
+        self._build(env, vision_cfg)
 
-    def _build(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
-        """Subclass hook: add the observation camera / sensors + top-down cam."""
+    def _build(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Add the strategy's observation camera / sensors and top-down camera.
 
-    def finalize(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
-        """Post-build: attach cameras, set poses, init appearance/obs state."""
+        Subclass hook run by :meth:`build`; the base adds nothing (no vision).
+
+        Args:
+            env: The env being built; its ``scene`` receives the cameras or
+                sensors.
+            vision_cfg: Env config supplying resolution, FOV, and top-down
+                options.
+        """
+
+    def finalize(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Finish setup after the scene is built.
+
+        Post-build hook for attaching cameras, posing, and appearance state.
+
+        Args:
+            env: The built env, providing the car links and device.
+            vision_cfg: Env config supplying pose, appearance, and observation
+                parameters.
+        """
 
     # ------------------------------------------------- per-step / per-episode
     def render(self, env: "DeepRacerEnv"):
-        """``(full_image, obs_image)`` both ``(N, 3, H, W)``, or ``(None, None)``."""
+        """Produce the per-step camera images for this strategy.
+
+        Args:
+            env: The env whose current frame is rendered.
+
+        Returns:
+            A pair ``(full_image, obs_image)``, each an ``(N, 3, H, W)`` tensor
+            (the full-resolution render and the policy-resolution observation),
+            or ``(None, None)`` for a no-vision strategy.
+        """
         return None, None
 
     def resample_appearance(self, env_ids: torch.Tensor) -> None:
-        """Per-episode world-color redraw (vision renderers only)."""
+        """Redraw the per-episode world-color remap for the given envs.
+
+        No-op on the base strategy; only vision renderers carry a color remap.
+
+        Args:
+            env_ids: Indices of the envs whose color palettes are resampled
+                (typically the envs resetting this step).
+        """
 
     def randomize_mount(self, env: "DeepRacerEnv", env_ids: torch.Tensor) -> None:
-        """Per-episode camera-mount jitter (Madrona only)."""
+        """Jitter the camera mount per episode for the given envs.
+
+        No-op except on the Madrona strategy, which owns an attached camera.
+
+        Args:
+            env: The env owning the camera being jittered.
+            env_ids: Indices of the envs whose camera mounts are re-randomized.
+        """
 
     # ------------------------------------------------------------- debug views
     def topdown(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Render the per-env top-down (bird's-eye) view.
+
+        Args:
+            env: The env to render from above.
+
+        Returns:
+            An ``(N, H, W, 3)`` batch of top-down RGB frames.
+
+        Raises:
+            NotImplementedError: Always, on the base strategy; the top-down
+                view requires a vision renderer.
+        """
         raise NotImplementedError("top-down view requires a vision renderer")
 
     def spectator(self, env: "DeepRacerEnv") -> np.ndarray:
+        """Render the single high-res spectator (bird's-eye) debug frame.
+
+        Args:
+            env: The env to render (unused directly; the spectator camera is
+                already positioned over the track).
+
+        Returns:
+            An ``(H, W, 3)`` RGB image of the whole track with all cars.
+
+        Raises:
+            AssertionError: If the spectator camera was not enabled via
+                ``cfg['spectator']`` during :meth:`build`.
+        """
         assert self.spec_cam is not None, "spectator camera not enabled (cfg['spectator'])"
         rgb = np.asarray(self.spec_cam.render(rgb=True)[0])
         return rgb.reshape(rgb.shape[-3:])
 
 
 class NullRenderer(Renderer):
-    """Feature / no-vision: state observations only (no camera)."""
+    """Feature / no-vision strategy: state observations only, no camera.
+
+    Used when ``vision`` is off; inherits the base strategy unchanged.
+    """
 
 
 class _CameraRenderer(Renderer):
-    """Shared vision base: world-color remap, pixel noise, policy-res downscale."""
+    """Shared base for the vision strategies.
+
+    Shares the world-color remap, pixel noise, and downscaling to policy res.
+    """
 
     has_camera = True
 
-    def finalize(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
-        self.rg_swap = bool(env_cfg.get("madrona_rg_swap", False))
+    def finalize(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Cache render parameters and initialize per-env color-remap state.
+
+        Reads render settings and allocates the per-env color transform.
+
+        Args:
+            env: The built env, providing ``num_envs`` and ``device``.
+            vision_cfg: Env config; reads ``madrona_rg_swap``, ``appearance``
+                (``world_color`` strength), ``policy_res``, ``camera_res``, and
+                ``pixel_noise``.
+        """
+        self.rg_swap = bool(vision_cfg.get("madrona_rg_swap", False))
         self._device = env.device
-        appearance = env_cfg.get("appearance") or {}
+        appearance = vision_cfg.get("appearance") or {}
         self.world_color_s = float(appearance.get("world_color", 0.0))
-        self.policy_res = env_cfg.get("policy_res") or env_cfg["camera_res"]
-        self._camera_res = env_cfg["camera_res"]
-        self._pixel_noise = float(env_cfg.get("pixel_noise", 0.0))
+        self.policy_res = vision_cfg.get("policy_res") or vision_cfg["camera_res"]
+        self._camera_res = vision_cfg["camera_res"]
+        self._pixel_noise = float(vision_cfg.get("pixel_noise", 0.0))
         if self.world_color_s > 0:
             # per-env, EPISODE-static color remap (resampled each reset): each
             # agent sees the same world through its own random palette
@@ -157,9 +291,35 @@ class _CameraRenderer(Renderer):
             self.color_bias = torch.zeros(n, 1, 3, device=env.device)
 
     def _acquire_rgb(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Grab the raw camera frame from the backend for this step.
+
+        Subclass hook: Madrona renders its camera, Nyx reads its sensor.
+
+        Args:
+            env: The env whose current camera frame is captured.
+
+        Returns:
+            An ``(N, H, W, 3)`` uint8 tensor of RGB pixels on device.
+
+        Raises:
+            NotImplementedError: Always, on this shared base; subclasses must
+                override.
+        """
         raise NotImplementedError
 
     def render(self, env: "DeepRacerEnv"):
+        """Acquire and post-process the per-step camera images.
+
+        Applies the color remap, optional pixel noise, and policy downscaling.
+
+        Args:
+            env: The env whose current frame is rendered.
+
+        Returns:
+            A pair ``(full_image, obs_image)``: the full-resolution
+            ``(N, 3, H, W)`` render and the ``(N, 3, ph, pw)`` policy
+            observation (identical when render and policy resolutions match).
+        """
         rgb = self._acquire_rgb(env)                          # (N, H, W, 3) uint8
         imgf = rgb.float().div_(255.0)
         if self.world_color_s > 0:
@@ -181,10 +341,14 @@ class _CameraRenderer(Renderer):
         return img, obs
 
     def resample_appearance(self, env_ids: torch.Tensor) -> None:
-        """Fresh per-env color remap: hue rotation + saturation/value scaling +
-        channel mixing + bias, strength-scaled. Invertible by construction, so
-        distinct scene features stay distinct — the world looks different, the
-        task stays readable."""
+        """Draw a fresh per-env world-color remap for the given envs.
+
+        Composes hue rotation, sat/val scaling, mixing, and bias per env.
+
+        Args:
+            env_ids: Indices of the envs whose color palettes are redrawn
+                (typically the envs resetting this step).
+        """
         if self.world_color_s <= 0:
             return
         n = len(env_ids)
@@ -208,20 +372,33 @@ class _CameraRenderer(Renderer):
 
 
 class MadronaRenderer(_CameraRenderer):
-    """Batch-renderer camera obs + camera-mount domain randomization."""
+    """Madrona batch-renderer camera obs with camera-mount randomization.
+
+    Uses the ``BatchRenderer`` and jitters the attached camera's mount.
+    """
 
     merge_fixed_links = True
     _scene_batch_renderer = True
     _spectator_debug = True
 
-    def _build(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
+    def _build(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Add the directional light, observation camera, and top-down camera.
+
+        Adds the light, the FOV-set obs camera, and an optional top-down camera.
+
+        Args:
+            env: The env being built; its ``scene`` and ``track`` receive the
+                light and cameras.
+            vision_cfg: Env config; reads ``light_intensity``, ``camera_res``
+                (W, H), ``camera_fov``, and ``topdown_camera``.
+        """
         env.scene.add_light(pos=(0.0, 0.0, 10.0), dir=(0.4, 0.3, -1.0),
                             directional=True, castshadow=False,
-                            intensity=float(env_cfg.get("light_intensity", 6.0)))
-        res = env_cfg["camera_res"]  # (W, H)
-        self.cam = env.scene.add_camera(res=res, fov=env_cfg["camera_fov"], GUI=False)
+                            intensity=float(vision_cfg.get("light_intensity", 6.0)))
+        res = vision_cfg["camera_res"]  # (W, H)
+        self.cam = env.scene.add_camera(res=res, fov=vision_cfg["camera_fov"], GUI=False)
         self.top_cam = None
-        if env_cfg.get("topdown_camera", False):
+        if vision_cfg.get("topdown_camera", False):
             # per-env bird's-eye pose over each env's own track variant
             centers, heights = [], []
             for t in env.track.tracks:
@@ -237,9 +414,19 @@ class MadronaRenderer(_CameraRenderer):
                 lookat=(float(c0[0]), float(c0[1]), 0.0),
                 up=(0.0, 1.0, 0.0), fov=60, GUI=False)
 
-    def finalize(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
-        super().finalize(env, env_cfg)
-        self.cam_offset_T = camera_offset_T(env_cfg.get("camera_pitch_deg", 0.0))
+    def finalize(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Attach the observation camera to the car and pose the top-down cam.
+
+        Runs shared setup, mounts the obs camera, and poses the top-down cam.
+
+        Args:
+            env: The built env, providing the car link, ``num_envs``, and
+                ``device``.
+            vision_cfg: Env config; reads ``camera_pitch_deg`` (plus everything
+                the base :meth:`_CameraRenderer.finalize` consumes).
+        """
+        super().finalize(env, vision_cfg)
+        self.cam_offset_T = camera_offset_T(vision_cfg.get("camera_pitch_deg", 0.0))
         self.cam.attach(env.car.get_link("camera_link"), self.cam_offset_T)
         if self.top_cam is not None:
             pos = torch.cat([self._top_center, self._top_height[:, None]], dim=1)
@@ -249,6 +436,16 @@ class MadronaRenderer(_CameraRenderer):
             self.top_cam.set_pose(pos=pos, lookat=lookat, up=up)
 
     def _acquire_rgb(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Move the attached camera into place and render the batched frame.
+
+        Applies the optional ``madrona_rg_swap`` channel-order correction.
+
+        Args:
+            env: The env whose current frame is captured.
+
+        Returns:
+            An ``(N, H, W, 3)`` uint8 CUDA tensor of RGB pixels.
+        """
         self.cam.move_to_attach()
         rgb = self.cam.render(rgb=True)[0]                       # (N, H, W, 3) uint8 cuda
         if self.rg_swap:
@@ -256,6 +453,15 @@ class MadronaRenderer(_CameraRenderer):
         return rgb
 
     def randomize_mount(self, env: "DeepRacerEnv", env_ids: torch.Tensor) -> None:
+        """Re-randomize the camera mount pitch and position for the given envs.
+
+        Perturbs the camera-offset transform by uniform pitch/position jitter.
+
+        Args:
+            env: The env owning the attached camera; ``cfg['rand']`` supplies
+                ``camera_pitch_jitter_deg`` and ``camera_pos_jitter_m``.
+            env_ids: Indices of the envs whose camera mounts are re-randomized.
+        """
         cfg = env.cfg["rand"]
         jitter_deg = cfg.get("camera_pitch_jitter_deg", 0.0)
         jitter_pos = cfg.get("camera_pos_jitter_m", 0.0)
@@ -279,41 +485,69 @@ class MadronaRenderer(_CameraRenderer):
         cam._attached_offset_T[env_ids] = T
 
     def topdown(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Render the per-env top-down view from the batch top-down camera.
+
+        Applies the optional channel swap to match the obs camera's order.
+
+        Args:
+            env: The env to render from above.
+
+        Returns:
+            An ``(N, H, W, 3)`` batch of top-down RGB frames.
+
+        Raises:
+            AssertionError: If the top-down camera was not enabled via
+                ``topdown_camera``.
+        """
         assert self.top_cam is not None
         rgb = self.top_cam.render(rgb=True)[0]
         return rgb[..., [1, 0, 2]] if self.rg_swap else rgb
 
 
 class NyxRenderer(_CameraRenderer):
-    """Nyx path-tracer sensor obs (true texture colors)."""
+    """Nyx path-tracer sensor obs with true texture colors.
+
+    Uses Nyx forward-path-tracer sensors instead of the batch renderer.
+    """
 
     merge_fixed_links = False   # the Nyx exporter refuses merged fixed links
     _scene_batch_renderer = False
     _spectator_debug = False
 
-    def _build(self, env: "DeepRacerEnv", env_cfg: dict) -> None:
+    def _build(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Add the Nyx observation sensor and optional top-down sensor.
+
+        Adds the obs sensor and an optional bird's-eye top-down sensor.
+
+        Args:
+            env: The env being built; its ``scene``, ``car``, and ``track``
+                supply the mount link and framing.
+            vision_cfg: Env config; reads ``nyx_light_intensity``, ``nyx_mode``,
+                ``camera_res``, ``nyx_spp``, ``camera_fov``,
+                ``camera_pitch_deg``, and ``topdown_camera``.
+        """
         import gs_nyx.nyx_py_renderer as npr
         import gs_nyx.nyx_py_sdk as nps
         from gs_nyx_plugin.nyx_camera_options import NyxCameraOptions
 
         sun = {"type": "directional", "dir": (0.4, 0.3, -1.0), "color": (1.0, 1.0, 1.0),
-               "intensity": float(env_cfg.get("nyx_light_intensity", 3.0)), "shadow": False}
-        mode = getattr(npr.ERenderMode, env_cfg.get("nyx_mode", "Forward"))
-        res = env_cfg["camera_res"]
+               "intensity": float(vision_cfg.get("nyx_light_intensity", 3.0)), "shadow": False}
+        mode = getattr(npr.ERenderMode, vision_cfg.get("nyx_mode", "Forward"))
+        res = vision_cfg["camera_res"]
         # denoise/AA off: their temporal history smears moving objects across
         # frames — bad for RL observations and for validation diffs
-        common = dict(spp=int(env_cfg.get("nyx_spp", 4)), render_mode=mode, lights=[sun],
+        common = dict(spp=int(vision_cfg.get("nyx_spp", 4)), render_mode=mode, lights=[sun],
                       denoise=False, anti_aliasing=nps.EAntiAliasing.Off)
         # same link->camera mount transform as the Madrona path (looks along -z
         # of offset_T incl. the downward pitch); sensors ignore pos/euler offset
         self.nyx_cam = env.scene.add_sensor(NyxCameraOptions(
-            res=res, fov=env_cfg["camera_fov"],
+            res=res, fov=vision_cfg["camera_fov"],
             entity_idx=env.car.idx,
             link_idx_local=env.car.get_link("camera_link").idx_local,
-            offset_T=camera_offset_T(env_cfg.get("camera_pitch_deg", 0.0)),
+            offset_T=camera_offset_T(vision_cfg.get("camera_pitch_deg", 0.0)),
             **common))
         self.nyx_top = None
-        if env_cfg.get("topdown_camera", False):
+        if vision_cfg.get("topdown_camera", False):
             c, extent = _track_extent(env.track.tracks[0])
             c = c.cpu().numpy()
             self.nyx_top = env.scene.add_sensor(NyxCameraOptions(
@@ -323,8 +557,30 @@ class NyxRenderer(_CameraRenderer):
                 **common))
 
     def _acquire_rgb(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Read the current RGB frame from the Nyx observation sensor.
+
+        Args:
+            env: The env whose current frame is captured (unused directly; the
+                sensor is already attached).
+
+        Returns:
+            An ``(N, H, W, 3)`` uint8 CUDA tensor of RGB pixels (alpha dropped).
+        """
         return self.nyx_cam.read().rgb[..., :3]                  # (N, H, W, 3) uint8 cuda
 
     def topdown(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Read the per-env top-down view from the Nyx top-down sensor.
+
+        Args:
+            env: The env to render from above (unused directly; the sensor is
+                already positioned).
+
+        Returns:
+            An ``(N, H, W, 3)`` batch of top-down RGB frames (alpha dropped).
+
+        Raises:
+            AssertionError: If the top-down sensor was not enabled via
+                ``topdown_camera``.
+        """
         assert self.nyx_top is not None
         return self.nyx_top.read().rgb[..., :3]

@@ -1,31 +1,6 @@
-"""Feature-vector construction: what the policy (and the CNN) gets to see.
+"""Build the policy/CNN feature vector from the live env state.
 
-Two registered sets ship; select with ``FeatureEnvironment(feature_set=...)``:
-
-**classic** (default) — the original 28-dim vector: normalized velocities,
-track-relative pose, last action, and K look-ahead waypoints rotated into
-the body frame.
-
-**perception** — the sim2real-oriented design. One organizing principle:
-*CNN = what's coming (feedforward), error channels = what's wrong now
-(feedback)*, everything normalized by FIXED constants (never episodic max):
-
-- CNN targets (readable from pixels at deploy; supervised from sim here):
-  ``lateral_offset`` (±1 lane position), ``heading_error`` (/pi),
-  ``speed`` (/4 m/s — grip depends on absolute speed, so the divisor is the
-  constant), ``yaw_rate`` (/5), ``sideslip beta`` (the reactive slide
-  channel), and signed look-ahead **curvature at fixed distances** (default
-  1 m and 3 m): sign says which way, magnitude how much to slow, the
-  near-far gradient how soon.
-- Policy-only channels (involve the commanded action, so they cannot be in
-  pixels): ``prev_action`` (last K), ``speed_error`` (commanded − achieved),
-  ``steer_response_error`` (nominal-bicycle expected lateral accel −
-  actual — the grip/understeer signal), ``yaw_error`` (expected − actual
-  yaw rate — separates sliding from plowing). The nominal bicycle is FIXED
-  (wheelbase/steering geometry at the center of the DR range).
-
-Custom sets: subclass :class:`FeatureSet`, decorate with
-``@register_feature_set("name")``, and select it by name.
+Ships ``classic`` and ``perception`` sets; register custom ones with a decorator.
 """
 
 from __future__ import annotations
@@ -78,8 +53,7 @@ def make_feature_set(name: str, env, params: dict | None = None) -> "FeatureSet"
 
 def feature_dim(name: str, *, lookahead_k: int = 10,
                 params: dict | None = None) -> int:
-    """Vector width for a feature set WITHOUT building an env (used by the
-    ONNX exporter and the model card)."""
+    """Return a feature set's vector width without building an env."""
     return FEATURE_SETS[name].dim_for(lookahead_k=lookahead_k,
                                       params=dict(params or {}))
 
@@ -94,9 +68,7 @@ def feature_layout(name: str, *, lookahead_k: int = 10,
 class FeatureSet:
     """One feature-vector recipe bound to a live env.
 
-    Subclasses implement :meth:`compute` (called once per control step,
-    after the env refreshed its kinematic/track-frame attributes) and may
-    keep per-env history buffers, cleared in :meth:`reset`.
+    Subclasses implement :meth:`compute` and clear history in :meth:`reset`.
     """
 
     def __init__(self, env, params: dict):
@@ -150,16 +122,16 @@ class ClassicFeatures(FeatureSet):
         env = self.env
         cy, sy = torch.cos(env.yaw), torch.sin(env.yaw)
         la_idx = env.track.lookahead(env.wp_idx, env.lookahead_k,
-                                     env.cfg["lookahead_stride"],
+                                     env.cfg["obs"]["lookahead_stride"],
                                      dir_sign=env.dir_sign)
         la_pts = env.track.lookahead_points(la_idx)              # (N, K, 2)
         rel = la_pts - env.base_pos[:, None, :2]
         rel_x = rel[..., 0] * cy[:, None] + rel[..., 1] * sy[:, None]
         rel_y = -rel[..., 0] * sy[:, None] + rel[..., 1] * cy[:, None]
-        la_scale = env.cfg["lookahead_scale"]
+        la_scale = env.cfg["obs"]["lookahead_scale"]
         return torch.cat(
             [
-                (env.v_forward / env.cfg["max_speed"]).unsqueeze(1),
+                (env.v_forward / env.cfg["action"]["max_speed"]).unsqueeze(1),
                 env.v_lateral.unsqueeze(1),
                 (env.yaw_rate / YAW_RATE_NORM).unsqueeze(1),
                 (env.lateral * env.dir_sign
@@ -176,15 +148,9 @@ class ClassicFeatures(FeatureSet):
 
 @register_feature_set("perception")
 class PerceptionFeatures(FeatureSet):
-    """CNN targets + action-conditioned error channels (module docstring).
+    """CNN targets + action-conditioned error channels.
 
-    Params (all optional):
-        horizons: look-ahead curvature probe distances in meters,
-            default ``(1.0, 3.0)``.
-        k_prev: how many past actions the policy sees, default 2.
-        k_speed: speed_error history length (near-memoryless), default 2.
-        k_steer: steer_response/yaw error history length — give it the
-            corner-spanning window, default 8.
+    Optional params: ``horizons``, ``k_prev``, ``k_speed``, ``k_steer``.
     """
 
     def __init__(self, env, params: dict):
