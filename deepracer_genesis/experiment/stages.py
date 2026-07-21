@@ -8,6 +8,7 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
+    from ..envs.features import FeatureSet
     from ..envs.rewards import RewardFn
 
 from .spec import (
@@ -115,7 +116,7 @@ class FeatureEnvironment(Stage):
     """State-vector env: no rendering; the vector is picked by feature_set.
 
     Attributes:
-        feature_set: Named observation vector to build.
+        feature_set: FeatureSet subclass to assemble the state, or None for default.
         feature_params: Extra parameters for the chosen feature set.
         lookahead_k: Number of upcoming waypoints exposed to the agent.
         tracks: Track names to train on; more than one trains heterogeneously.
@@ -125,7 +126,7 @@ class FeatureEnvironment(Stage):
         KIND: Stage category tag (environment).
     """
 
-    feature_set: str = "classic"        # or "perception" (see envs/features.py)
+    feature_set: "type[FeatureSet] | None" = None   # None -> ClassicFeatures
     feature_params: Optional[dict] = None
     lookahead_k: int = 10
     tracks: tuple[str, ...] = ("reinvent_base",)   # >1 => heterogeneous per-env
@@ -156,7 +157,7 @@ class CameraEnvironment(Stage):
         resolution: Camera image width and height in pixels.
         fov: Horizontal field of view in degrees.
         lookahead_k: Number of upcoming waypoints exposed to the agent.
-        feature_set: Named auxiliary state vector accompanying the image.
+        feature_set: FeatureSet subclass for the auxiliary state, or None for default.
         feature_params: Extra parameters for the chosen feature set.
         tracks: Track names to train on; more than one trains heterogeneously.
         num_envs: Parallel simulation instances.
@@ -169,7 +170,7 @@ class CameraEnvironment(Stage):
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
     lookahead_k: int = 10
-    feature_set: str = "classic"
+    feature_set: "type[FeatureSet] | None" = None
     feature_params: Optional[dict] = None
     tracks: tuple[str, ...] = ("reinvent_base",)
     num_envs: int = 128

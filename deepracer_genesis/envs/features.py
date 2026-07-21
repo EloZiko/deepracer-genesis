@@ -1,6 +1,6 @@
 """Build the policy/CNN feature vector from the live env state.
 
-Ships ``classic`` and ``perception`` sets; register custom ones with a decorator.
+Ships ``ClassicFeatures`` and ``PerceptionFeatures``; pass a FeatureSet subclass.
 """
 
 from __future__ import annotations
@@ -8,8 +8,6 @@ from __future__ import annotations
 import math
 
 import torch
-
-FEATURE_SETS: dict[str, type] = {}
 
 #: fixed normalization constants + physical caps — the single source of truth
 #: is physics/limits.py; re-exported here so `from ...features import MAX_SPEED`
@@ -21,48 +19,48 @@ from ..physics.limits import (  # noqa: E402
 )
 
 
-def register_feature_set(name: str):
-    """Class decorator: make `name` selectable as a ``feature_set``."""
-    def deco(cls: type) -> type:
-        if name in FEATURE_SETS:
-            raise ValueError(f"feature set {name!r} already registered")
-        FEATURE_SETS[name] = cls
-        return cls
-    return deco
-
-
-def make_feature_set(name: str, env, params: dict | None = None) -> "FeatureSet":
-    """Instantiate a registered feature set bound to a live env.
+def resolve_feature_set(feature_set):
+    """Return the FeatureSet class to use, defaulting ``None`` to ClassicFeatures.
 
     Args:
-        name: registered feature-set name.
-        env: the DeepRacerEnv instance the set reads from.
-        params: set-specific parameters (see each set's ``__init__``).
+        feature_set: A FeatureSet subclass, or None for the default.
 
-    Raises:
-        ValueError: unknown name (lists what is registered).
+    Returns:
+        The FeatureSet subclass (ClassicFeatures when given None).
     """
-    try:
-        cls = FEATURE_SETS[name]
-    except KeyError:
-        raise ValueError(
-            f"unknown feature_set {name!r}; registered: {sorted(FEATURE_SETS)}"
-        ) from None
-    return cls(env, dict(params or {}))
+    return feature_set if feature_set is not None else ClassicFeatures
 
 
-def feature_dim(name: str, *, lookahead_k: int = 10,
+def feature_dim(feature_set, *, lookahead_k: int = 10,
                 params: dict | None = None) -> int:
-    """Return a feature set's vector width without building an env."""
-    return FEATURE_SETS[name].dim_for(lookahead_k=lookahead_k,
-                                      params=dict(params or {}))
+    """Return a feature set's vector width without building an env.
+
+    Args:
+        feature_set: A FeatureSet subclass, or None for the default.
+        lookahead_k: Number of lookahead waypoints the set may use.
+        params: Set-specific parameters.
+
+    Returns:
+        The state-vector width the set produces.
+    """
+    return resolve_feature_set(feature_set).dim_for(
+        lookahead_k=lookahead_k, params=dict(params or {}))
 
 
-def feature_layout(name: str, *, lookahead_k: int = 10,
+def feature_layout(feature_set, *, lookahead_k: int = 10,
                    params: dict | None = None) -> str:
-    """Human-readable channel layout (for model cards / dataset metas)."""
-    return FEATURE_SETS[name].layout_for(lookahead_k=lookahead_k,
-                                         params=dict(params or {}))
+    """Return a human-readable channel layout (model cards / dataset metas).
+
+    Args:
+        feature_set: A FeatureSet subclass, or None for the default.
+        lookahead_k: Number of lookahead waypoints the set may use.
+        params: Set-specific parameters.
+
+    Returns:
+        A string describing each channel of the state vector.
+    """
+    return resolve_feature_set(feature_set).layout_for(
+        lookahead_k=lookahead_k, params=dict(params or {}))
 
 
 class FeatureSet:
@@ -104,7 +102,6 @@ class FeatureSet:
     cnn_target_slice: tuple[int, int] | None = None
 
 
-@register_feature_set("classic")
 class ClassicFeatures(FeatureSet):
     """The original vector: pose/velocity + body-frame look-ahead waypoints.
 
@@ -156,7 +153,6 @@ class ClassicFeatures(FeatureSet):
         )
 
 
-@register_feature_set("perception")
 class PerceptionFeatures(FeatureSet):
     """CNN targets + action-conditioned error channels.
 

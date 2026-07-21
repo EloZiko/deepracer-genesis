@@ -49,7 +49,7 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "lookahead_stride": 3,
             "lookahead_scale": 3.0,
             "obs_noise": 0.0,
-            "feature_set": "classic",
+            "feature_set": None,        # a FeatureSet subclass, or None -> ClassicFeatures
             "feature_params": {},
         },
         "vision": {

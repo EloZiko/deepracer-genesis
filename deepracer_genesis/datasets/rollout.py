@@ -167,7 +167,7 @@ def collect_rollout_dataset(
             "frames": frames_out,
             "resolution": list(spec.env.resolution), "control_dt": sim.dt,
             "agent": type(agent).__name__, "seed": seed,
-            "feature_set": spec.env.feature_set,
+            "feature_set": type(fs).__name__,
             "state_layout": type(fs).layout_for(lookahead_k=spec.env.lookahead_k,
                                                 params=spec.env.feature_params),
             # rows state[:, slice] are the channels a deployed CNN must

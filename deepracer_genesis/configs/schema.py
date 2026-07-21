@@ -64,7 +64,7 @@ class ObsConfig(TypedDict):
     lookahead_stride: int
     lookahead_scale: float
     obs_noise: float
-    feature_set: str
+    feature_set: Optional[type]   # a FeatureSet subclass, or None -> ClassicFeatures
     feature_params: dict
 
 

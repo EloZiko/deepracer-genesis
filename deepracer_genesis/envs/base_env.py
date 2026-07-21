@@ -15,7 +15,6 @@ import genesis as gs
 from . import mdp, rules
 from .scene import build_scene
 from .track import MultiTrack
-from ..physics.limits import YAW_RATE_NORM
 from ..randomization.domain_rand import randomize_physics
 
 
@@ -219,8 +218,12 @@ class DeepRacerEnv:
             self.cost_episode_sum = torch.zeros(N, device=self.device)
         self.extras = {"log": {}}
 
-        self.lookahead_k = env_cfg["obs"]["lookahead_k"]
-        self.num_state_obs = 8 + 2 * self.lookahead_k
+        from .features import resolve_feature_set
+        obs_cfg = env_cfg["obs"]
+        self.lookahead_k = obs_cfg["lookahead_k"]
+        self.feature_set = resolve_feature_set(obs_cfg["feature_set"])(
+            self, dict(obs_cfg["feature_params"]))
+        self.num_state_obs = self.feature_set.dim
         self.state_buf = torch.zeros(N, self.num_state_obs, device=self.device)
         self._init_obs_buffers(env_cfg)
 
@@ -353,31 +356,8 @@ class DeepRacerEnv:
         self.laps += ((d.abs() > 0.5 * L) & (self.d_progress > 0)).float()
         self.progress_m = new_progress
 
-        # ---- state obs ----
-        la_idx = self.track.lookahead(self.wp_idx, self.lookahead_k,
-                                      self.cfg["obs"]["lookahead_stride"],
-                                      dir_sign=self.dir_sign)
-        la_pts = self.track.lookahead_points(la_idx)             # (N, K, 2)
-        rel = la_pts - pos[:, None, :2]
-        rel_x = rel[..., 0] * cy[:, None] + rel[..., 1] * sy[:, None]
-        rel_y = -rel[..., 0] * sy[:, None] + rel[..., 1] * cy[:, None]
-        la_scale = self.cfg["obs"]["lookahead_scale"]
-        self.state_buf = torch.cat(
-            [
-                (self.v_forward / self.cfg["action"]["max_speed"]).unsqueeze(1),
-                self.v_lateral.unsqueeze(1),
-                (self.yaw_rate / YAW_RATE_NORM).unsqueeze(1),
-                # signed offset in the car's own left/right (flips when reversed)
-                (self.lateral * self.dir_sign
-                 / self.half_width.clamp(min=0.1)).unsqueeze(1),
-                torch.sin(self.heading_err).unsqueeze(1),
-                torch.cos(self.heading_err).unsqueeze(1),
-                self.actions,
-                rel_x / la_scale,
-                rel_y / la_scale,
-            ],
-            dim=1,
-        )
+        # ---- state obs (assembled by the selected feature set) ----
+        self.state_buf = self.feature_set.compute()
         if self.cfg["obs"]["obs_noise"] > 0:
             self.state_buf += torch.randn_like(self.state_buf) * self.cfg["obs"]["obs_noise"]
 
@@ -433,6 +413,7 @@ class DeepRacerEnv:
         self.laps[env_ids] = 0.0
         self.actions[env_ids] = 0.0
         self.last_actions[env_ids] = 0.0
+        self.feature_set.reset(env_ids)   # clear any per-env feature history
         self.progress_m[env_ids] = self.track.localize(pos_xy, envs_idx=env_ids)["progress_m"]
         # same stream fence as step(): reset poses/DR draws are torch temporaries
         # consumed by genesis kernels (see step() comment)

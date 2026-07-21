@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
+    from ..envs.features import FeatureSet
     from ..envs.rewards import RewardFn
 
 
@@ -36,7 +37,7 @@ class EnvSpec:
         resolution: rendered image width/height.
         fov: camera field of view in degrees.
         lookahead_k: number of upcoming waypoints exposed to the policy.
-        feature_set: which state-vector assembler to use ("classic"/"perception").
+        feature_set: FeatureSet subclass to assemble the state, or None for the default.
         feature_params: tuning knobs (horizons, history lengths) for the feature set.
         tracks: track names the env trains across.
         num_envs: parallel environment count.
@@ -54,10 +55,10 @@ class EnvSpec:
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
     lookahead_k: int = 10
-    # which "state" vector the env assembles (envs/features.py):
-    # "classic" (waypoint lookahead) or "perception" (CNN targets + error
-    # channels for sim2real); feature_params tunes horizons/history lengths
-    feature_set: str = "classic"
+    # the FeatureSet subclass the env assembles (envs/features.py): None keeps
+    # the default ClassicFeatures (waypoint lookahead); PerceptionFeatures gives
+    # the sim2real CNN targets + error channels. feature_params tunes it.
+    feature_set: "type[FeatureSet] | None" = None
     feature_params: dict = field(default_factory=dict)
     tracks: tuple[str, ...] = ("reinvent_base",)
     num_envs: int = 512
