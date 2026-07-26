@@ -13,32 +13,16 @@ import torch
 
 import genesis as gs
 
+# Visual DR *definitions* live in randomization/visual.py; the renderer is the
+# application site that imports and calls them (Part L).
+from ..randomization.visual import (  # noqa: E402
+    add_pixel_noise,
+    sample_mount_transforms,
+    sample_world_color,
+)
+
 if TYPE_CHECKING:
     from .base_env import DeepRacerEnv
-
-# RGB <-> YIQ (luma / chroma) for the world-color DR remap
-_RGB2YIQ = torch.tensor([[0.299, 0.587, 0.114],
-                         [0.596, -0.274, -0.322],
-                         [0.211, -0.523, 0.312]])
-_YIQ2RGB = torch.tensor([[1.0, 0.956, 0.621],
-                         [1.0, -0.272, -0.647],
-                         [1.0, -1.106, 1.703]])
-
-
-def _u(lo, hi, shape, device):
-    """Draw a uniform sample on ``[lo, hi)`` of the requested shape and device.
-
-    Args:
-        lo: Lower bound of the uniform range.
-        hi: Upper (exclusive) bound of the uniform range.
-        shape: Shape of the tensor to fill.
-        device: Torch device to allocate the sample on.
-
-    Returns:
-        A tensor of the given shape with values drawn uniformly from
-        ``[lo, hi)``.
-    """
-    return lo + (hi - lo) * torch.rand(shape, device=device)
 
 
 def camera_offset_T(pitch_deg: float) -> np.ndarray:
@@ -342,8 +326,7 @@ class _CameraRenderer(Renderer):
             imgf = ((imgf.view(n, h * w, c) @ self.color_mat.transpose(1, 2)
                      + self.color_bias).clamp_(0.0, 1.0).view(n, h, w, c))
         img = imgf.permute(0, 3, 1, 2)
-        if self._pixel_noise > 0:
-            img = (img + torch.randn_like(img) * self._pixel_noise).clamp(0, 1)
+        img = add_pixel_noise(img, self._pixel_noise)
         if tuple(self.policy_res) != tuple(self._camera_res):
             # rendering above the policy's resolution (demo videos); the policy
             # still receives a downscaled frame
@@ -364,24 +347,10 @@ class _CameraRenderer(Renderer):
         """
         if self.world_color_s <= 0:
             return
-        n = len(env_ids)
-        s = self.world_color_s
-        dev = self._device
-        theta = (torch.rand(n, device=dev) * 2 - 1) * math.pi * s
-        cos, sin = torch.cos(theta), torch.sin(theta)
-        rot = torch.zeros(n, 3, 3, device=dev)
-        rot[:, 0, 0] = 1.0
-        rot[:, 1, 1] = cos; rot[:, 1, 2] = -sin
-        rot[:, 2, 1] = sin; rot[:, 2, 2] = cos
-        sat = 1.0 + (torch.rand(n, device=dev) * 2 - 1) * 0.6 * s
-        val = 1.0 + (torch.rand(n, device=dev) * 2 - 1) * 0.35 * s
-        scale = torch.zeros(n, 3, 3, device=dev)
-        scale[:, 0, 0] = val
-        scale[:, 1, 1] = sat; scale[:, 2, 2] = sat
-        m = _YIQ2RGB.to(dev) @ scale @ rot @ _RGB2YIQ.to(dev)
-        mix = torch.randn(n, 3, 3, device=dev) * 0.08 * s
-        self.color_mat[env_ids] = m + mix
-        self.color_bias[env_ids] = ((torch.rand(n, 1, 3, device=dev) * 2 - 1) * 0.12 * s)
+        mat, bias = sample_world_color(len(env_ids), self.world_color_s,
+                                       self._device)
+        self.color_mat[env_ids] = mat
+        self.color_bias[env_ids] = bias
 
 
 class MadronaRenderer(_CameraRenderer):
@@ -490,17 +459,8 @@ class MadronaRenderer(_CameraRenderer):
         base = torch.as_tensor(self.cam_offset_T, dtype=torch.float32, device=env.device)
         if cam._attached_offset_T.dim() == 2:
             cam._attached_offset_T = base.expand(env.num_envs, 4, 4).clone()
-        n = len(env_ids)
-        p = torch.deg2rad(_u(-jitter_deg, jitter_deg, (n,), env.device))
-        rx = torch.zeros(n, 4, 4, device=env.device)
-        rx[:, 0, 0] = 1.0
-        rx[:, 3, 3] = 1.0
-        rx[:, 1, 1] = torch.cos(p)
-        rx[:, 1, 2] = -torch.sin(p)
-        rx[:, 2, 1] = torch.sin(p)
-        rx[:, 2, 2] = torch.cos(p)
-        T = base.expand(n, 4, 4).clone() @ rx
-        T[:, :3, 3] += _u(-jitter_pos, jitter_pos, (n, 3), env.device)
+        T = sample_mount_transforms(self.cam_offset_T, jitter_deg, jitter_pos,
+                                    len(env_ids), env.device)
         cam._attached_offset_T[env_ids] = T
 
     def topdown(self, env: "DeepRacerEnv") -> torch.Tensor:

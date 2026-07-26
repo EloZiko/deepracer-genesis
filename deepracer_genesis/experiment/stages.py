@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Optional
 if TYPE_CHECKING:
     from ..envs.features import FeatureSet
     from ..envs.rewards import RewardFn
+    from ..randomization.spaces import Space
 
 from .spec import (
     ActionDRSpec,
@@ -43,6 +44,26 @@ DEFAULT_PPO = {
     "horizon": 24,           # rollout steps per env per PPO iteration
 }
 DEFAULT_PID = (0.05, 0.0005, 0.1)
+
+
+def _dr_cfg_value(x):
+    """Normalize a DR field to its ``cfg['rand']`` shape.
+
+    Accepts a shared :class:`~deepracer_genesis.randomization.spaces.Space`
+    (the same type HPO uses — Part H) and emits its ``to_cfg()`` value (a
+    ``(lo, hi)`` tuple for ranges, a scalar magnitude for ``SymRange``), or a
+    raw tuple/scalar unchanged. Keeps the exact shape ``domain_rand`` expects.
+
+    Args:
+        x: A ``Space`` object, a ``(lo, hi)`` tuple, or a scalar.
+
+    Returns:
+        The cfg-shaped value (tuple or scalar).
+    """
+    from ..randomization.spaces import Space
+    if isinstance(x, Space):
+        return x.to_cfg()
+    return tuple(x) if isinstance(x, (list, tuple)) else x
 
 
 # ----------------------------------------------------------------------
@@ -351,22 +372,24 @@ class DomainRandomizationPhysics(Stage):
         KIND: Stage category tag (obs_dr_physics).
     """
 
-    friction: tuple[float, float] = (0.6, 1.4)
-    mass: float = 0.2              # +- kg per link
-    com: float = 0.01              # +- m per link
-    gains: tuple[float, float] = (0.8, 1.2)
-    armature: tuple[float, float] = (0.0, 0.01)
+    # each field accepts a shared Space (FloatRange/SymRange — Part H) or a
+    # raw tuple/scalar; normalized to the cfg shape at build via _dr_cfg_value.
+    friction: "Space | tuple[float, float]" = (0.6, 1.4)
+    mass: "Space | float" = 0.2              # +- kg per link
+    com: "Space | float" = 0.01              # +- m per link
+    gains: "Space | tuple[float, float]" = (0.8, 1.2)
+    armature: "Space | tuple[float, float]" = (0.0, 0.01)
 
     KIND = "obs_dr_physics"
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
         physics = {
-            "friction_range": tuple(self.friction),
-            "mass_shift_kg": self.mass,
-            "com_shift_m": self.com,
-            "steer_kp_scale": tuple(self.gains),
-            "wheel_kv_scale": tuple(self.gains),
-            "armature_range": tuple(self.armature),
+            "friction_range": _dr_cfg_value(self.friction),
+            "mass_shift_kg": _dr_cfg_value(self.mass),
+            "com_shift_m": _dr_cfg_value(self.com),
+            "steer_kp_scale": _dr_cfg_value(self.gains),
+            "wheel_kv_scale": _dr_cfg_value(self.gains),
+            "armature_range": _dr_cfg_value(self.armature),
         }
         return replace(spec, obs_dr=replace(spec.obs_dr, physics=physics))
 

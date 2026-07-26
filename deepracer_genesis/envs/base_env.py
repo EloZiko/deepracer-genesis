@@ -15,7 +15,7 @@ import genesis as gs
 from . import mdp, rules
 from .scene import build_scene
 from .track import MultiTrack
-from ..randomization.domain_rand import randomize_physics
+from ..randomization.physics import randomize_physics
 
 
 class DeepRacerEnv:
@@ -227,6 +227,12 @@ class DeepRacerEnv:
         self.state_buf = torch.zeros(N, self.num_state_obs, device=self.device)
         self._init_obs_buffers(env_cfg)
 
+        # Shared lazy signal bus (Part K.1): populated per step, read by any
+        # consumer (feature vector / reward / cost). Invalidated in
+        # _post_physics; nothing pays for a signal it never reads.
+        from .signals import SignalBus
+        self.signals = SignalBus(self)
+
         from .rewards import deepracer
         reward_cfg = env_cfg["reward"]
         reward_fn = reward_cfg["reward"] or deepracer   # None -> default
@@ -326,6 +332,7 @@ class DeepRacerEnv:
                 zeroed so a respawn does not register as forward progress. ``None``
                 updates all envs without that correction.
         """
+        self.signals.invalidate()   # new step: drop the per-step signal cache
         pos, quat, vel, ang = self.car.kinematics()
 
         self.base_pos = pos

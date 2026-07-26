@@ -32,7 +32,11 @@ if os.path.isdir(_GENERATED):
 
 
 class Track:
-    """Vectorized (GPU) track geometry queries against the centerline.
+    """Per-variant track geometry container (centerline + derived quantities).
+
+    A plain geometry holder: :class:`MultiTrack` reads these tensors to build
+    its padded batched view and owns all the actual queries (localize /
+    lookahead / spawn). ``Track`` carries no query methods of its own.
 
     Attributes:
         name: track identifier used to look up assets.
@@ -92,45 +96,6 @@ class Track:
         dyaw = torch.remainder(torch.roll(self.track_yaw, -1) - self.track_yaw
                                + math.pi, 2 * math.pi) - math.pi
         self.curvature = dyaw / seg_len                        # (W,)
-
-    def localize(self, pos_xy):
-        """Return per-position track-frame quantities for positions (N, 2).
-
-        Returns:
-            Dict with wp_idx (N,), lateral (N,) signed offset (+ = left),
-            half_width (N,), progress_m (N,) arclength in [0, L), track_yaw (N,).
-        """
-        d = torch.cdist(pos_xy, self.center)                   # (N, W)
-        wp_idx = d.argmin(dim=1)                               # (N,)
-        c = self.center[wp_idx]
-        t = self.tangent[wp_idx]
-        n = self.normal[wp_idx]
-        rel = pos_xy - c
-        lateral = (rel * n).sum(dim=1)
-        along = (rel * t).sum(dim=1)
-        progress_m = torch.remainder(self.cum_len[wp_idx] + along, self.total_len)
-        return {
-            "wp_idx": wp_idx,
-            "lateral": lateral,
-            "half_width": self.half_width[wp_idx],
-            "progress_m": progress_m,
-            "track_yaw": self.track_yaw[wp_idx],
-        }
-
-    def lookahead(self, wp_idx, k, stride=2):
-        """Indices of k upcoming waypoints: (N, k)."""
-        offs = torch.arange(1, k + 1, device=self.device) * stride
-        return torch.remainder(wp_idx[:, None] + offs[None, :], self.n_wps)
-
-    def spawn_pose(self, wp_idx, lateral_noise=0.0, yaw_noise=0.0):
-        """Spawn position/yaw at given waypoint indices (N,). Returns pos_xy (N,2), yaw (N,)."""
-        n = wp_idx.shape[0]
-        c = self.center[wp_idx]
-        nml = self.normal[wp_idx]
-        lat = (torch.rand(n, device=self.device) * 2 - 1) * lateral_noise
-        pos = c + nml * lat[:, None]
-        yaw = self.track_yaw[wp_idx] + (torch.rand(n, device=self.device) * 2 - 1) * yaw_noise
-        return pos, yaw
 
 
 def balanced_variant_mapping(n_variants, n_envs, device):

@@ -132,3 +132,29 @@ def test_choice_to_cfg_raises():
 def test_choice_rejects_empty():
     with pytest.raises(ValueError, match="at least one"):
         Choice([])
+
+
+# ------------------------------------------------- DR-side wiring (Part H)
+def test_dr_physics_accepts_spaces_matching_raw_cfg_shapes():
+    """DomainRandomizationPhysics with Space objects emits the same
+    cfg['rand'] shapes (tuple vs scalar) as raw tuples/scalars."""
+    from deepracer_genesis.experiment import (
+        FeatureEnvironment,
+        VectorPolicy,
+    )
+    from deepracer_genesis.experiment.stages import DomainRandomizationPhysics
+
+    raw = (FeatureEnvironment(num_envs=8)
+           >> DomainRandomizationPhysics(friction=(0.6, 1.4), mass=0.2, com=0.01,
+                                         gains=(0.8, 1.2), armature=(0.0, 0.01))
+           >> VectorPolicy()).build()
+    spaced = (FeatureEnvironment(num_envs=8)
+              >> DomainRandomizationPhysics(friction=FloatRange(0.6, 1.4),
+                                            mass=SymRange(0.2), com=SymRange(0.01),
+                                            gains=FloatRange(0.8, 1.2),
+                                            armature=FloatRange(0.0, 0.01))
+              >> VectorPolicy()).build()
+    assert raw.obs_dr.physics == spaced.obs_dr.physics
+    # friction is a (lo, hi) tuple; mass is a bare scalar magnitude
+    assert spaced.obs_dr.physics["friction_range"] == (0.6, 1.4)
+    assert spaced.obs_dr.physics["mass_shift_kg"] == 0.2

@@ -11,7 +11,12 @@ here.
 from deepracer_genesis.experiment import register
 
 from .camera import cam_baseline, cam_full_dr, cam_nyx, cam_plain
-from .feature import feature_baseline, feature_dr, feature_nodr
+from .feature import (
+    feature_baseline,
+    feature_dr,
+    feature_nodr,
+    feature_perception,
+)
 from .safe import SafeTransfer, SafeTransferNyx, SafeTransferTight, safe_feature
 from .template import MyExperiment, MyExperimentNoDelay
 
@@ -23,6 +28,7 @@ EXPERIMENTS = {
     "cam_plain": cam_plain,
     # feature-vector baselines
     "feature_baseline": feature_baseline,
+    "feature_perception": feature_perception,
     "feature_dr": feature_dr,
     "feature_nodr": feature_nodr,
     # safe-RL (Env 2)
