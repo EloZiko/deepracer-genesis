@@ -31,3 +31,30 @@ def test_perception_changes_observation_width():
 
 def test_explicit_classic_matches_default():
     assert feature_dim(ClassicFeatures, lookahead_k=10) == feature_dim(None, lookahead_k=10)
+
+
+# --------------------------------------------- SelectFeatures (Part K.2)
+def test_select_features_full_matches_classic_width():
+    from deepracer_genesis.envs.features import SelectFeatures
+    from experiments.base_feature_vector import FULL
+    assert (feature_dim(SelectFeatures, lookahead_k=10, params={"features": FULL})
+            == feature_dim(ClassicFeatures, lookahead_k=10))
+
+
+def test_select_features_subset_widths():
+    from deepracer_genesis.envs.features import SelectFeatures
+    from experiments.base_feature_vector import KINEMATIC, MINIMAL
+    assert feature_dim(SelectFeatures, lookahead_k=10, params={"features": MINIMAL}) == 4
+    assert feature_dim(SelectFeatures, lookahead_k=10, params={"features": KINEMATIC}) == 8
+    # lookahead width scales with lookahead_k
+    d5 = feature_dim(SelectFeatures, lookahead_k=5, params={"features": ("lookahead_xy",)})
+    assert d5 == 10
+
+
+def test_select_features_rejects_unknown_and_empty():
+    import pytest
+    from deepracer_genesis.envs.features import SelectFeatures
+    with pytest.raises(ValueError, match="unknown feature block"):
+        feature_dim(SelectFeatures, params={"features": ("v_forward", "bogus")})
+    with pytest.raises(ValueError, match="non-empty"):
+        feature_dim(SelectFeatures, params={"features": ()})

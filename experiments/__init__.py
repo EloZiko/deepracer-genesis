@@ -14,6 +14,8 @@ from .camera import cam_baseline, cam_full_dr, cam_nyx, cam_plain
 from .feature import (
     feature_baseline,
     feature_dr,
+    feature_kinematic,
+    feature_minimal,
     feature_nodr,
     feature_perception,
 )
@@ -26,8 +28,10 @@ EXPERIMENTS = {
     "cam_nyx": cam_nyx,
     "cam_full_dr": cam_full_dr,
     "cam_plain": cam_plain,
-    # feature-vector baselines
+    # feature-vector baselines (each chooses its feature blocks)
     "feature_baseline": feature_baseline,
+    "feature_minimal": feature_minimal,
+    "feature_kinematic": feature_kinematic,
     "feature_perception": feature_perception,
     "feature_dr": feature_dr,
     "feature_nodr": feature_nodr,

@@ -262,3 +262,117 @@ class PerceptionFeatures(FeatureSet):
         self._speed_err[env_ids] = 0.0
         self._steer_err[env_ids] = 0.0
         self._yaw_err[env_ids] = 0.0
+
+
+# ---------------------------------------------------------------------------
+# Composable feature blocks: a feature vector is an ordered *selection* of these
+# (Part K.2). Each block is one named, normalized group of channels; an
+# experiment picks the blocks it wants via ``SelectFeatures`` (see
+# ``experiments/base_feature_vector.py``). The block computes read the same live
+# env state ClassicFeatures does, so selecting every block in order reproduces
+# the classic vector exactly.
+
+from dataclasses import dataclass          # noqa: E402
+from typing import Callable, Union         # noqa: E402
+
+
+@dataclass(frozen=True)
+class FeatureBlock:
+    """One named group of feature channels.
+
+    Attributes:
+        width: Channel count — an int, or a fn of ``lookahead_k`` for
+            lookahead-sized blocks.
+        compute: ``env -> (N, width)`` tensor for the current step.
+        layout: Human-readable channel label(s); ``{k}`` expands to lookahead_k.
+    """
+
+    width: Union[int, Callable[[int], int]]
+    compute: Callable[["object"], torch.Tensor]
+    layout: str
+
+
+def _block_width(width, lookahead_k: int) -> int:
+    return width(lookahead_k) if callable(width) else width
+
+
+def _lookahead_xy(env) -> torch.Tensor:
+    """Body-frame (rel_x, rel_y) of the upcoming waypoints, (N, 2K)."""
+    cy, sy = torch.cos(env.yaw), torch.sin(env.yaw)
+    la_idx = env.track.lookahead(env.wp_idx, env.lookahead_k,
+                                 env.cfg["obs"]["lookahead_stride"],
+                                 dir_sign=env.dir_sign)
+    la_pts = env.track.lookahead_points(la_idx)
+    rel = la_pts - env.base_pos[:, None, :2]
+    rel_x = rel[..., 0] * cy[:, None] + rel[..., 1] * sy[:, None]
+    rel_y = -rel[..., 0] * sy[:, None] + rel[..., 1] * cy[:, None]
+    la_scale = env.cfg["obs"]["lookahead_scale"]
+    return torch.cat([rel_x / la_scale, rel_y / la_scale], dim=1)
+
+
+#: the block vocabulary experiments select from (order in a selection matters)
+FEATURE_BLOCKS: dict[str, FeatureBlock] = {
+    "v_forward": FeatureBlock(
+        1, lambda e: (e.v_forward / e.cfg["action"]["max_speed"]).unsqueeze(1),
+        "v_forward/max_speed"),
+    "v_lateral": FeatureBlock(1, lambda e: e.v_lateral.unsqueeze(1), "v_lateral"),
+    "yaw_rate": FeatureBlock(
+        1, lambda e: (e.yaw_rate / YAW_RATE_NORM).unsqueeze(1), "yaw_rate/norm"),
+    "lateral": FeatureBlock(
+        1, lambda e: (e.lateral * e.dir_sign / e.half_width.clamp(min=0.1)).unsqueeze(1),
+        "lateral/half_width"),
+    "heading": FeatureBlock(
+        2, lambda e: torch.cat([torch.sin(e.heading_err).unsqueeze(1),
+                                torch.cos(e.heading_err).unsqueeze(1)], dim=1),
+        "sin(heading_err), cos(heading_err)"),
+    "last_action": FeatureBlock(2, lambda e: e.actions, "last_action[2]"),
+    "lookahead_xy": FeatureBlock(
+        lambda k: 2 * k, _lookahead_xy,
+        "lookahead_rel_x[{k}]/scale, lookahead_rel_y[{k}]/scale"),
+}
+
+
+class SelectFeatures(FeatureSet):
+    """A feature vector assembled from a chosen, ordered list of blocks.
+
+    ``params['features']`` is a tuple of :data:`FEATURE_BLOCKS` names; the
+    vector is their concatenation in that order. This is how an experiment
+    chooses exactly which features it uses (Part K.2) without a bespoke
+    ``FeatureSet`` subclass.
+
+    Attributes:
+        env: the live env the features are read from.
+        params: must contain ``features`` (the ordered block names).
+    """
+
+    @staticmethod
+    def _names(params: dict) -> tuple[str, ...]:
+        names = tuple(params.get("features", ()))
+        if not names:
+            raise ValueError(
+                "SelectFeatures needs params['features'] = a non-empty tuple of "
+                f"block names from {sorted(FEATURE_BLOCKS)}")
+        unknown = [n for n in names if n not in FEATURE_BLOCKS]
+        if unknown:
+            raise ValueError(
+                f"unknown feature block(s) {unknown}; available: "
+                f"{sorted(FEATURE_BLOCKS)}")
+        return names
+
+    @property
+    def dim(self) -> int:
+        return self.dim_for(lookahead_k=self.env.lookahead_k, params=self.params)
+
+    @classmethod
+    def dim_for(cls, *, lookahead_k: int, params: dict) -> int:
+        return sum(_block_width(FEATURE_BLOCKS[n].width, lookahead_k)
+                   for n in cls._names(params))
+
+    @classmethod
+    def layout_for(cls, *, lookahead_k: int, params: dict) -> str:
+        return ", ".join(FEATURE_BLOCKS[n].layout.format(k=lookahead_k)
+                         for n in cls._names(params))
+
+    def compute(self) -> torch.Tensor:
+        return torch.cat([FEATURE_BLOCKS[n].compute(self.env)
+                          for n in self._names(self.params)], dim=1)
