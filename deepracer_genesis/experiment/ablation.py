@@ -29,7 +29,7 @@ def override(spec: ExperimentSpec, path: str, value) -> ExperimentSpec:
     out = _override(spec, path, value)
     if isinstance(out, ExperimentSpec):
         if (path == "env.cost_budget" and out.algorithm is not None
-                and out.algorithm.kind == "ppo_lagrangian"):
+                and out.algorithm.requires_cost):
             out = _override(out, "algorithm.lagrangian.budget", value)
         elif (path == "algorithm.lagrangian.budget" and out.env is not None
                 and out.env.emits_cost):

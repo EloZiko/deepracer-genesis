@@ -6,15 +6,12 @@ from typing import TYPE_CHECKING, Any
 
 import torch
 
-from .protocol import register_algorithm
-
 if TYPE_CHECKING:
     from tensordict import TensorDictBase
 
     from ..experiment.builder import Builder
 
 
-@register_algorithm("ppo")
 class PPO:
     """Clipped PPO over the canonical torchrl loop (cheat-sheet section 5).
 
@@ -28,6 +25,8 @@ class PPO:
         optim: Optimizer stepping the loss module parameters.
         buffer: Replay buffer yielding minibatches per epoch.
     """
+
+    requires_cost = False   # plain reward-only PPO
 
     def setup(self, builder: "Builder") -> None:
         self.spec = builder.spec

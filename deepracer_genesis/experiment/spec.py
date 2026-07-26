@@ -10,6 +10,7 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
+    from ..algorithms import Algorithm
     from ..envs.features import FeatureSet
     from ..envs.rewards import RewardFn
 
@@ -156,20 +157,31 @@ class ActionDRSpec:
 
 @dataclass(frozen=True)
 class AlgorithmSpec:
-    """Training-algorithm slice; `kind` selects a registered Algorithm
-    implementation (e.g. "ppo", "ppo_lagrangian", or a custom kind).
+    """Training-algorithm slice; `cls` is the Algorithm class the Trainer
+    instantiates and `setup()`s (passed directly — no registry).
 
     Attributes:
-        kind: which registered algorithm implementation to use.
+        cls: the Algorithm class to run, or None for the built-in PPO default.
         ppo: PPO hyperparameters.
         lagrangian: Lagrangian settings (budget, PID gains, ...).
-        params: free-form parameters for custom algorithm kinds.
+        params: free-form parameters for custom algorithm classes.
     """
 
-    kind: str = "ppo"
+    cls: "type[Algorithm] | None" = None   # None => built-in PPO
     ppo: dict = field(default_factory=dict)
     lagrangian: dict = field(default_factory=dict)  # budget, pid=(kp,ki,kd), ...
-    params: dict = field(default_factory=dict)      # free-form for custom kinds
+    params: dict = field(default_factory=dict)      # free-form for custom classes
+
+    @property
+    def resolved_cls(self) -> "type[Algorithm]":
+        """The concrete Algorithm class to instantiate (None -> PPO)."""
+        from ..algorithms import PPO
+        return self.cls if self.cls is not None else PPO
+
+    @property
+    def requires_cost(self) -> bool:
+        """Whether the selected algorithm consumes a cost signal (safe-RL)."""
+        return bool(getattr(self.resolved_cls, "requires_cost", False))
 
 
 @dataclass(frozen=True)
@@ -375,20 +387,24 @@ class ExperimentSpec:
         env, algo = self.env, self.algorithm
         if algo is None:
             raise SpecError("algorithm missing: build() must run _infer_algorithm")
-        match algo.kind:
-            case "ppo" if env.emits_cost:
-                warnings.warn(
-                    "cost-emitting env trained with plain PPO: the cost stream is "
-                    "collected but unconstrained (was this intentional?)",
-                    stacklevel=2)
-            case "ppo_lagrangian":
-                if not env.emits_cost:
-                    raise SpecError("PPOLagrangian requires a SafeRL* env that emits a cost signal")
-                if not algo.lagrangian.get("budget"):
-                    raise SpecError("PPOLagrangian needs a budget (explicit or from the env stage)")
-                if (env.cost_budget is not None
-                        and algo.lagrangian.get("budget") not in (None, env.cost_budget)):
-                    raise SpecError(
-                        "conflicting budgets: env.cost_budget=%r vs algorithm.lagrangian"
-                        "['budget']=%r — sweep 'env.cost_budget' (ablation.override keeps "
-                        "them in sync)" % (env.cost_budget, algo.lagrangian.get("budget")))
+        if algo.requires_cost:
+            if not env.emits_cost:
+                raise SpecError(
+                    "%s requires a SafeRL* env that emits a cost signal"
+                    % algo.resolved_cls.__name__)
+            if not algo.lagrangian.get("budget"):
+                raise SpecError(
+                    "%s needs a budget (explicit or from the env stage)"
+                    % algo.resolved_cls.__name__)
+            if (env.cost_budget is not None
+                    and algo.lagrangian.get("budget") not in (None, env.cost_budget)):
+                raise SpecError(
+                    "conflicting budgets: env.cost_budget=%r vs algorithm.lagrangian"
+                    "['budget']=%r — sweep 'env.cost_budget' (ablation.override keeps "
+                    "them in sync)" % (env.cost_budget, algo.lagrangian.get("budget")))
+        elif env.emits_cost:
+            warnings.warn(
+                "cost-emitting env trained with a reward-only algorithm (%s): the "
+                "cost stream is collected but unconstrained (was this intentional?)"
+                % algo.resolved_cls.__name__,
+                stacklevel=2)

@@ -19,12 +19,12 @@ def _rec(target, variant, group, seed=0, **metrics):
 def test_spec_axes_derivation():
     axes = spec_axes(run("cam_baseline", build_only=True).to_dict())
     assert axes == {"modality": "camera", "render": "madrona",
-                    "algorithm": "ppo", "asymmetry": "asymmetric",
+                    "algorithm": "PPO", "asymmetry": "asymmetric",
                     "encoder": "none", "dr_profile": "full"}
     axes = spec_axes(run("cam_plain", build_only=True).to_dict())
     assert axes["dr_profile"] == "none" and axes["asymmetry"] == "asymmetric"
     axes = spec_axes(run("SafeTransfer", build_only=True).to_dict())
-    assert axes["algorithm"] == "ppo_lagrangian"
+    assert axes["algorithm"] == "PPOLagrangian"
     assert axes["encoder"] == "frozen_cnn"
     assert axes["dr_profile"] == "obs+action"
 

@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 import torch
 
 from .ppo import PPO
-from .protocol import register_algorithm
 
 if TYPE_CHECKING:
     from tensordict import TensorDictBase
@@ -59,7 +58,6 @@ class PIDLagrangian:
         self.value = state["value"]
 
 
-@register_algorithm("ppo_lagrangian")
 class PPOLagrangian(PPO):
     """PPO with a cost critic and a PID-controlled Lagrangian lambda.
 
@@ -70,6 +68,8 @@ class PPOLagrangian(PPO):
         optim: Optimizer over the loss module and cost critic.
         j_cost: Smoothed estimate of mean episode cost.
     """
+
+    requires_cost = True   # consumes a cost signal -> needs a cost env + budget
 
     def setup(self, builder: "Builder") -> None:
         super().setup(builder)

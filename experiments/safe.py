@@ -8,11 +8,9 @@ from deepracer_genesis.experiment import (
     SafeRLCameraEnvironment,
     SafeRLFeatureEnvironment,
     VectorPolicy,
-    experiment,
 )
 
 
-@experiment
 def safe_feature():
     """Phase-4 development target: PPO-Lagrangian on the (fast) feature env."""
     return (

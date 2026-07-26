@@ -23,7 +23,7 @@ from deepracer_genesis.experiment import (
     SpecError,
     VectorPolicy,
     build,
-    experiment,
+    register,
     run,
 )
 
@@ -65,7 +65,7 @@ def test_env1_builds_expected_spec():
     assert spec.policy.critic_keys == ("camera", "state")
     assert spec.policy.cnn is not None
     assert spec.action_dr.delay_steps == 1
-    assert spec.algorithm.kind == "ppo"         # inferred: no cost signal
+    assert not spec.algorithm.requires_cost     # inferred: no cost signal
 
 
 def test_env2_builds_expected_spec():
@@ -76,12 +76,12 @@ def test_env2_builds_expected_spec():
     assert spec.encoder.out_key == "encoded"
     assert spec.policy.cnn is None              # vector policy downstream
     assert spec.policy.actor_keys == ("encoded", "state")
-    assert spec.algorithm.kind == "ppo_lagrangian"   # inferred from emits_cost
+    assert spec.algorithm.requires_cost              # inferred from emits_cost
     assert spec.algorithm.lagrangian["budget"] == 25.0
 
 
 def test_env2_as_class_idiom_matches_function_idiom():
-    class _Env2(Experiment):       # leading _ opts out of the registry
+    class _Env2(Experiment):       # not listed in EXPERIMENTS -> not registered
         budget = 25.0
         def spec(self):
             return env2_pipeline(budget=self.budget).build(seed=0)
@@ -178,7 +178,7 @@ def test_plain_ppo_on_cost_env_warns():
     with pytest.warns(UserWarning, match="unconstrained"):
         spec = (SafeRLFeatureEnvironment(budget=25.0)
                 >> VectorPolicy() >> PPO()).build()
-    assert spec.algorithm.kind == "ppo"
+    assert not spec.algorithm.requires_cost
 
 
 def test_explicit_lagrangian_budget_filled_from_env():
@@ -198,7 +198,7 @@ def test_registry_and_run_dispatcher():
     by_name = run("cam_baseline", build_only=True)
     by_fn = run(REGISTRY["cam_baseline"], build_only=True)
     assert by_name == by_fn
-    assert by_name.algorithm.kind == "ppo"
+    assert not by_name.algorithm.requires_cost
 
     with_override = run("cam_baseline", build_only=True, seed=3)
     assert with_override.seed == 3
@@ -244,9 +244,9 @@ def test_run_accepts_spec_and_pipeline():
 
 
 def test_build_rejects_forgotten_build():
-    @experiment(name="_forgot_build")
     def forgot():
         return env1_pipeline()          # returns a Pipeline, not a spec
+    register({"_forgot_build": forgot})
     with pytest.raises(SpecError, match="forget"):
         build("_forgot_build")
 

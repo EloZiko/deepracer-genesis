@@ -7,7 +7,6 @@ from deepracer_genesis.experiment import (
     DomainRandomizationCamera,
     DomainRandomizationPhysics,
     DomainRandomizationTrackAppearance,
-    experiment,
 )
 
 
@@ -28,27 +27,23 @@ def _cam_chain(render="madrona", num_envs=128, dr=True):
     return chain
 
 
-@experiment
 def cam_baseline():
     """Env 1: end-to-end camera, asymmetric critic, full DR, unconstrained PPO."""
     return _cam_chain("madrona").build(seed=0, ablation_group="camera", variant="madrona")
 
 
-@experiment
 def cam_nyx():
     """Render-method ablation partner for cam_baseline (only render differs)."""
     return _cam_chain("nyx", num_envs=64).build(seed=0, ablation_group="camera",
                                                 variant="nyx")
 
 
-@experiment
 def cam_full_dr():
     """dr_effect pairing: the full-DR treatment (same config as cam_baseline)."""
     return _cam_chain("madrona").build(seed=0, ablation_group="dr_effect",
                                        variant="full_dr")
 
 
-@experiment
 def cam_plain():
     """dr_effect pairing: the no-DR baseline."""
     return _cam_chain("madrona", dr=False).build(seed=0, ablation_group="dr_effect",

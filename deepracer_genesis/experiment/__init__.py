@@ -33,7 +33,7 @@ from .stages import (
     Stage,
     VectorPolicy,
 )
-from .registry import REGISTRY, Experiment, experiment
+from .registry import REGISTRY, Experiment, register
 from .run import build, run
 
 __all__ = [
@@ -48,6 +48,6 @@ __all__ = [
     "FrozenCNNToFeatureVector",
     "AsymmetricCameraPolicy", "VectorPolicy", "AsymmetricVectorPolicy",
     "PPO", "PPOLagrangian", "Algo", "RewardShaping",
-    "REGISTRY", "experiment", "Experiment",
+    "REGISTRY", "register", "Experiment",
     "build", "run",
 ]

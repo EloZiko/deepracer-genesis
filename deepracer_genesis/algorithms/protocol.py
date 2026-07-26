@@ -1,11 +1,14 @@
 """Algorithm contract for plugging a custom training algorithm into the Trainer.
 
-Satisfy the `Algorithm` protocol, register with `@register_algorithm`, and select via `Algo(kind=...)`.
+Satisfy the `Algorithm` protocol and pass the class directly to the DSL via
+`Algo(cls=MyAlgorithm)`; the Trainer instantiates and `setup()`s it. Set the
+class attribute `requires_cost = True` if the algorithm consumes a cost signal
+(the spec then requires a cost-emitting env + budget, as PPO-Lagrangian does).
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, ClassVar, Protocol, runtime_checkable
 
 import torch
 
@@ -14,61 +17,15 @@ if TYPE_CHECKING:  # only for annotations; keep import-time light
 
     from .builder import Builder
 
-ALGORITHMS: dict[str, type] = {}
-
-
-def register_algorithm(kind: str):
-    """Class decorator: make `kind` selectable from AlgorithmSpec.kind.
-
-    Args:
-        kind: Registry key, referenced from the DSL via
-            `Algo(kind="my_kind", ...)`.
-
-    Returns:
-        The decorator; it registers and returns the class unchanged.
-
-    Raises:
-        ValueError: If `kind` is already registered (raised at decoration
-            time).
-    """
-    def deco(cls: type) -> type:
-        if kind in ALGORITHMS:
-            raise ValueError(f"algorithm kind {kind!r} already registered")
-        ALGORITHMS[kind] = cls
-        return cls
-    return deco
-
-
-def make_algorithm(builder: "Builder") -> "Algorithm":
-    """Resolve AlgorithmSpec.kind against the registry and set it up.
-
-    Args:
-        builder: The Builder whose spec selects the algorithm kind; passed
-            through to the instance's setup().
-
-    Returns:
-        A ready (setup-complete) Algorithm instance.
-
-    Raises:
-        ValueError: If the kind is not registered; the message lists the
-            registered names.
-    """
-    kind = builder.spec.algorithm.kind
-    try:
-        cls = ALGORITHMS[kind]
-    except KeyError:
-        raise ValueError(
-            f"unknown algorithm kind {kind!r}; registered: {sorted(ALGORITHMS)} "
-            "(custom algorithms register via "
-            "deepracer_genesis.algorithms.register_algorithm)") from None
-    algo = cls()
-    algo.setup(builder)
-    return algo
-
 
 @runtime_checkable
 class Algorithm(Protocol):
     """What the Trainer drives; see the module docstring for the guide."""
+
+    #: True if the algorithm consumes a cost signal (safe-RL). The spec then
+    #: demands a cost-emitting env and a budget; the Trainer wires the cost
+    #: channel. Plain reward-only algorithms leave this False.
+    requires_cost: ClassVar[bool] = False
 
     def setup(self, builder: "Builder") -> None:
         """Build networks, losses and optimizers from the Builder.

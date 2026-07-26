@@ -1,9 +1,8 @@
-"""Training algorithms: the Algorithm protocol, its registry, and shipped
-implementations (PPO, PPO-Lagrangian)."""
+"""Training algorithms: the Algorithm protocol and shipped implementations
+(PPO, PPO-Lagrangian). Select one by passing the class to `Algo(cls=...)`."""
 
 from .lagrangian import PIDLagrangian, PPOLagrangian
 from .ppo import PPO
-from .protocol import ALGORITHMS, Algorithm, make_algorithm, register_algorithm
+from .protocol import Algorithm
 
-__all__ = ["ALGORITHMS", "Algorithm", "register_algorithm", "make_algorithm",
-           "PPO", "PPOLagrangian", "PIDLagrangian"]
+__all__ = ["Algorithm", "PPO", "PPOLagrangian", "PIDLagrangian"]

@@ -17,23 +17,33 @@ import os
 import optuna
 
 from deepracer_genesis.experiment import PPO, FeatureEnvironment, VectorPolicy, run
+from deepracer_genesis.randomization.spaces import FloatRange, IntRange
 
 STEPS = int(os.environ.get("HPO_STEPS", 5_000_000))
 EVAL_EVERY = int(os.environ.get("HPO_EVAL_EVERY", 500_000))
 N_TRIALS = int(os.environ.get("HPO_TRIALS", 20))
 METRIC = "completion_rate"
 
+# The search space as declarative {name: Space} — the SAME Space types domain
+# randomization uses (Part H). Each site chooses its verb: HPO calls
+# `space.suggest(trial, name)`; DR would call `space.sample(n, device)`.
+SEARCH_SPACE = {
+    "lr": FloatRange(1e-4, 1e-2, log=True),
+    "entropy_coef": FloatRange(1e-3, 3e-2, log=True),
+    "epochs": IntRange(3, 8),
+    "clip": FloatRange(0.1, 0.3),
+}
+
 
 def objective(trial: optuna.Trial) -> float:
     # the sampled values go straight into the PPO stage — the same pipeline
     # syntax as any experiment, no path-string overrides
+    p = {name: space.suggest(trial, name) for name, space in SEARCH_SPACE.items()}
     spec = (
         FeatureEnvironment(lookahead_k=10, num_envs=1024)
         >> VectorPolicy()
-        >> PPO(lr=trial.suggest_float("lr", 1e-4, 1e-2, log=True),
-               entropy_coef=trial.suggest_float("entropy_coef", 1e-3, 3e-2, log=True),
-               epochs=trial.suggest_int("epochs", 3, 8),
-               clip=trial.suggest_float("clip", 0.1, 0.3))
+        >> PPO(lr=p["lr"], entropy_coef=p["entropy_coef"],
+               epochs=p["epochs"], clip=p["clip"])
     ).build(seed=0, total_env_steps=STEPS, eval_every_steps=EVAL_EVERY,
             ablation_group="hpo")
 

@@ -52,7 +52,7 @@ def spec_axes(spec: dict) -> dict:
     return {
         "modality": env["modality"],
         "render": env["render"],
-        "algorithm": spec["algorithm"]["kind"],
+        "algorithm": spec["algorithm"]["cls"] or "PPO",   # cls name (None => PPO)
         "asymmetry": ("asymmetric" if set(policy["critic_keys"]) != set(policy["actor_keys"])
                       else "symmetric"),
         "encoder": spec["encoder"]["kind"],

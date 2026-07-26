@@ -25,14 +25,15 @@ def yaw_from_quat(q: torch.Tensor) -> torch.Tensor:
 
 
 def wrap(a: torch.Tensor) -> torch.Tensor:
-    """Wrap angles into the ``(-pi, pi]`` range.
+    """Wrap angles into the ``[-pi, pi)`` range.
 
     Args:
         a: Batch of angles in radians, any shape.
 
     Returns:
-        The same tensor with each angle folded into ``(-pi, pi]``, preserving
-        the input shape.
+        The same tensor with each angle folded into ``[-pi, pi)``, preserving
+        the input shape (``torch.remainder`` yields ``[0, 2pi)``, so ``pi``
+        maps to ``-pi``).
     """
     return torch.remainder(a + math.pi, 2 * math.pi) - math.pi
 

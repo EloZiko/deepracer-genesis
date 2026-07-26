@@ -13,7 +13,7 @@ def build(target, **overrides) -> ExperimentSpec:
     """Resolve any experiment handle into a validated ExperimentSpec.
 
     Args:
-        target: a registered name, an ``@experiment`` function, an
+        target: a registered name, a spec-factory function, an
             ``Experiment`` class or instance, a ``Pipeline``, or a spec.
         **overrides: route by name — keys matching the Experiment class's
             config attributes go to the class

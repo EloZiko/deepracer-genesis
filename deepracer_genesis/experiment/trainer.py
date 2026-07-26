@@ -82,9 +82,9 @@ class Trainer:
 
         torch.manual_seed(spec.seed)
 
-        from ..algorithms import make_algorithm
         env = self.b.env()
-        algo = make_algorithm(self.b)
+        algo = spec.algorithm.resolved_cls()
+        algo.setup(self.b)
         collector = self.b.collector(env, algo.collect_policy)
 
         from torch.utils.tensorboard import SummaryWriter
@@ -99,7 +99,7 @@ class Trainer:
         sim = self.b.sim()
         obs_transform = self._eval_obs_transform()
         budget = (spec.algorithm.lagrangian.get("budget")
-                  if spec.algorithm.kind == "ppo_lagrangian" else None)
+                  if spec.algorithm.requires_cost else None)
 
         horizon = spec.algorithm.ppo.get("horizon", 24)
         iterations = max(1, spec.total_env_steps // (spec.env.num_envs * horizon))

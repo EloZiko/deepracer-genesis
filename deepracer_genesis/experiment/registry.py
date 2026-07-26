@@ -1,6 +1,10 @@
 """Name registry + Experiment base class (plan section 1.2).
 
 A registered name is a handle to Python code, not a config file path.
+Registration is explicit: an authoring package declares an ``EXPERIMENTS``
+map and hands it to :func:`register` (typically from its ``__init__``), so
+`run("cam_baseline")` resolves after ``import experiments``. There is no
+decorator/subclass auto-registration side effect.
 """
 
 from __future__ import annotations
@@ -10,29 +14,23 @@ from typing import Callable, Union
 REGISTRY: dict[str, Union[Callable, type]] = {}
 
 
-def experiment(fn=None, *, name: str | None = None):
-    # (decorator) register a zero-arg spec factory under `name` or fn.__name__
-    """Register an experiment-building function under its (or a given) name.
+def register(mapping: dict[str, Union[Callable, type]]) -> None:
+    """Register an explicit name -> experiment-handle map.
 
     Args:
-        fn: The zero-arg spec factory (filled in automatically in the bare
-            form).
-        name: Registry key; defaults to fn.__name__.
-
-    Returns:
-        The registered function unchanged (bare form) or the decorator.
+        mapping: Names to experiment handles (a zero-arg spec factory, an
+            ``Experiment`` subclass, a ``Pipeline``, or an ``ExperimentSpec``)
+            — anything :func:`deepracer_genesis.experiment.run.build` accepts.
 
     Raises:
-        ValueError: If the name is already registered.
+        ValueError: If a name is already registered by a different handle.
     """
-    def deco(f):
-        key = name or f.__name__
-        if key in REGISTRY:
+    for key, handle in mapping.items():
+        existing = REGISTRY.get(key)
+        if existing is not None and existing is not handle:
             raise ValueError(f"experiment name {key!r} already registered "
-                             f"(by {REGISTRY[key]!r})")
-        REGISTRY[key] = f
-        return f
-    return deco(fn) if fn is not None else deco
+                             f"(by {existing!r})")
+        REGISTRY[key] = handle
 
 
 class Experiment:
@@ -69,13 +67,6 @@ class Experiment:
             attrs.update(k for k, v in vars(klass).items()
                          if not k.startswith("_") and not callable(v))
         return sorted(attrs)
-
-    def __init_subclass__(cls, register: bool = True, **kwargs):
-        super().__init_subclass__(**kwargs)
-        if register and not cls.__name__.startswith("_"):
-            if cls.__name__ in REGISTRY:
-                raise ValueError(f"experiment name {cls.__name__!r} already registered")
-            REGISTRY[cls.__name__] = cls
 
     # ------------------------------------------------------------------
     def pipeline(self) -> "Stage | Pipeline":

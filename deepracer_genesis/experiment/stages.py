@@ -549,7 +549,7 @@ class PPO(Stage):
         }
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
-        return replace(spec, algorithm=AlgorithmSpec(kind="ppo", ppo=self._ppo_dict()))
+        return replace(spec, algorithm=AlgorithmSpec(cls=None, ppo=self._ppo_dict()))
 
 
 @dataclass(frozen=True)
@@ -569,8 +569,9 @@ class PPOLagrangian(PPO):
     lambda_init: float = 0.0
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
+        from ..algorithms import PPOLagrangian as _PPOLagrangianAlgo
         return replace(spec, algorithm=AlgorithmSpec(
-            kind="ppo_lagrangian", ppo=self._ppo_dict(),
+            cls=_PPOLagrangianAlgo, ppo=self._ppo_dict(),
             lagrangian={
                 "budget": self.budget, "pid": tuple(self.pid),
                 "cost_gae_lambda": self.cost_gae_lambda,
@@ -581,20 +582,20 @@ class PPOLagrangian(PPO):
 
 @dataclass(frozen=True)
 class Algo(PPO):
-    """Terminal stage selecting a CUSTOM registered algorithm by kind; PPO fields
+    """Terminal stage selecting a CUSTOM Algorithm class directly; PPO fields
     are generic on-policy knobs and `params` carries algorithm-specific args.
 
     Attributes:
-        kind: Registered algorithm identifier to instantiate.
+        cls: Algorithm class to instantiate, or None for the built-in PPO.
         params: Algorithm-specific arguments passed through.
     """
 
-    kind: str = "ppo"
+    cls: "type | None" = None
     params: Optional[dict] = None
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
         return replace(spec, algorithm=AlgorithmSpec(
-            kind=self.kind, ppo=self._ppo_dict(), params=dict(self.params or {})))
+            cls=self.cls, ppo=self._ppo_dict(), params=dict(self.params or {})))
 
 
 # ----------------------------------------------------------------------
@@ -603,7 +604,8 @@ def _infer_algorithm(spec: ExperimentSpec) -> ExperimentSpec:
     env = spec.env
     if spec.algorithm is None:
         if env is not None and env.emits_cost:
-            algo = AlgorithmSpec(kind="ppo_lagrangian", ppo=dict(DEFAULT_PPO),
+            from ..algorithms import PPOLagrangian as _PPOLagrangianAlgo
+            algo = AlgorithmSpec(cls=_PPOLagrangianAlgo, ppo=dict(DEFAULT_PPO),
                                  lagrangian={
                                      "budget": env.cost_budget,
                                      "pid": DEFAULT_PID,
@@ -611,10 +613,10 @@ def _infer_algorithm(spec: ExperimentSpec) -> ExperimentSpec:
                                      "lambda_init": 0.0,
                                  })
         else:
-            algo = AlgorithmSpec(kind="ppo", ppo=dict(DEFAULT_PPO))
+            algo = AlgorithmSpec(cls=None, ppo=dict(DEFAULT_PPO))
         return replace(spec, algorithm=algo)
     algo = spec.algorithm
-    if (algo.kind == "ppo_lagrangian" and algo.lagrangian.get("budget") is None
+    if (algo.requires_cost and algo.lagrangian.get("budget") is None
             and env is not None and env.cost_budget is not None):
         lag = dict(algo.lagrangian, budget=env.cost_budget)
         return replace(spec, algorithm=replace(algo, lagrangian=lag))
