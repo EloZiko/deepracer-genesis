@@ -47,45 +47,60 @@ Policies expose **`actor_keys` / `critic_keys`** — the asymmetric-critic hook:
 critic can read richer observation keys than the actor (e.g. `critic_keys=("camera",
 "state")` with `actor_keys=("camera",)`).
 
-## Two example chains
+## Authoring an experiment
 
-Feature-vector baseline:
+Author each experiment as an **`Experiment` subclass**: training config as class
+attributes, the `>>` chain in `pipeline()`. A variant is a subclass (or an override
+like `FeatureBaseline(num_envs=256)`).
 
 ```python
-spec = (
-    FeatureEnvironment(num_envs=1024, lookahead_k=10)
-    >> VectorPolicy(keys=("state",))
-).build(seed=0)
+from deepracer_genesis.experiment import Experiment, FeatureEnvironment, VectorPolicy, run
+
+class FeatureBaseline(Experiment):
+    seed = 0
+    total_env_steps = 5_000_000
+    eval_every_steps = 1_000_000
+    num_envs = 1024
+    def pipeline(self):
+        return (FeatureEnvironment(num_envs=self.num_envs, lookahead_k=10)
+                >> VectorPolicy(keys=("state",)))
+
+class FeatureBaselineSmall(FeatureBaseline):     # a variant
+    num_envs = 256
+
+run(FeatureBaseline)
 ```
 
-Camera + full DR + transfer encoder + safe-RL:
+Camera + full DR + transfer encoder + safe-RL follows the same pattern:
 
 ```python
-spec = (
-    SafeRLCameraEnvironment(render="madrona", cost="offtrack_or_overspeed", budget=25.0)
-    >> DomainRandomizationCamera(brightness=(0.7, 1.3))
-    >> FrozenCNNToFeatureVector(checkpoint="runs/.../best.pt", output_dim=256)
-    >> VectorPolicy(keys=("encoded", "state"))
-    >> DomainRandomizationActions(steer_noise=0.02)
-).build(seed=0)
+class SafeTransfer(Experiment):
+    render = "madrona"; budget = 25.0; ckpt = "runs/.../best.pt"
+    def pipeline(self):
+        return (
+            SafeRLCameraEnvironment(render=self.render,
+                                    cost="offtrack_or_overspeed", budget=self.budget)
+            >> DomainRandomizationCamera(brightness=(0.7, 1.3))
+            >> FrozenCNNToFeatureVector(checkpoint=self.ckpt, output_dim=256)
+            >> VectorPolicy(keys=("encoded", "state"))
+            >> DomainRandomizationActions(steer_noise=0.02)
+        )
 ```
 
 The safe-RL env emits a cost stream, so `_infer_algorithm` selects PPO-Lagrangian
-automatically (no explicit algorithm stage needed).
+automatically. For full control (e.g. a dynamic `variant` name) override `spec()`
+instead of `pipeline()`.
 
-## Building vs running
+## build / run
 
-- `build(target, **overrides)` — validate and return the `ExperimentSpec` (also
-  accepts a registered experiment name, an `Experiment` subclass, a `Pipeline`, or a
-  spec).
+- `build(target, **overrides)` — validate → frozen `ExperimentSpec`. `target` is an
+  `Experiment` subclass/instance, a `Pipeline`, or a spec.
 - `run(target, *, root="runs", **overrides)` — build, then train via
-  `Trainer(Builder(spec))`. Returns the eval record.
+  `Trainer(Builder(spec))`; returns the eval record. `MyExperiment().run()` and
+  `uv run experiments/my_file.py` (with `run(MyExperiment)` under `__main__`) are
+  equivalent entry points.
 
 ```python
 from deepracer_genesis.experiment import run
-run(spec, root="runs")
+run(FeatureBaseline, root="runs")
 ```
-
-Authoring longer-lived experiments as a class (with `total_env_steps`,
-`eval_every_steps`, `num_envs`, and a `pipeline()` method) is covered in the
-[tutorial](../tutorial.md).

@@ -267,10 +267,10 @@ class PerceptionFeatures(FeatureSet):
 # ---------------------------------------------------------------------------
 # Composable feature blocks: a feature vector is an ordered *selection* of these
 # (Part K.2). Each block is one named, normalized group of channels; an
-# experiment picks the blocks it wants via ``SelectFeatures`` (see
-# ``experiments/base_feature_vector.py``). The block computes read the same live
-# env state ClassicFeatures does, so selecting every block in order reproduces
-# the classic vector exactly.
+# experiment picks the blocks it wants via ``SelectFeatures`` (see the feature
+# examples in ``examples/feature_vector.py``). The block computes read the same
+# live env state ClassicFeatures does, so selecting every block in order
+# reproduces the classic vector exactly.
 
 from dataclasses import dataclass          # noqa: E402
 from typing import Callable, Union         # noqa: E402

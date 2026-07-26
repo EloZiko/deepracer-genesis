@@ -17,6 +17,7 @@ from .spec import (
     AlgorithmSpec,
     EncoderSpec,
     EnvSpec,
+    EvalConfig,
     ExperimentSpec,
     ObsDRSpec,
     PolicySpec,
@@ -113,7 +114,8 @@ class Pipeline:
                             % counts.get("policy", 0))
         for kind, limit in (("environment", 1), ("encoder", 1),
                             ("action_dr", 1), ("algorithm", 1),
-                            ("obs_dr_camera", 1), ("obs_dr_physics", 1)):
+                            ("obs_dr_camera", 1), ("obs_dr_physics", 1),
+                            ("eval", 1)):
             if counts.get(kind, 0) > limit:
                 raise SpecError("at most %d %s stage(s) allowed; got %d"
                                 % (limit, kind, counts[kind]))
@@ -154,6 +156,8 @@ class FeatureEnvironment(Stage):
     num_envs: int = 512
     random_start: bool = True
     random_direction: bool = False     # coin-flip CW/CCW per episode
+    backend: str = "gpu"               # "gpu" | "cpu" (Part M)
+    view: str = "none"                 # "none" | "gui" | "spectator" | "topdown"
 
     KIND = "environment"
 
@@ -166,6 +170,7 @@ class FeatureEnvironment(Stage):
             tracks=tuple(self.tracks), num_envs=self.num_envs,
             random_start=self.random_start,
             random_direction=self.random_direction,
+            backend=self.backend, view=self.view,
         ))
 
 
@@ -197,6 +202,8 @@ class CameraEnvironment(Stage):
     num_envs: int = 128
     random_start: bool = True
     random_direction: bool = False     # coin-flip CW/CCW per episode
+    backend: str = "gpu"               # "gpu" | "cpu" (Part M)
+    view: str = "none"                 # "none" | "gui" | "spectator" | "topdown"
 
     KIND = "environment"
 
@@ -210,6 +217,7 @@ class CameraEnvironment(Stage):
             tracks=tuple(self.tracks),
             num_envs=self.num_envs, random_start=self.random_start,
             random_direction=self.random_direction,
+            backend=self.backend, view=self.view,
         ))
 
 
@@ -619,6 +627,36 @@ class Algo(PPO):
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
         return replace(spec, algorithm=AlgorithmSpec(
             cls=self.cls, ppo=self._ppo_dict(), params=dict(self.params or {})))
+
+
+# ----------------------------------------------------------------------
+# Evaluation stage (optional; sets the first-class EvalConfig — Part N)
+@dataclass(frozen=True)
+class Evaluation(Stage):
+    """Configure evaluation: out-of-loop real-track holdout eval + charts.
+
+    Attributes:
+        real_tracks: holdout tracks evaluated independently after training
+            (empty = no holdout eval). Pass e.g. ``TrackDataset().holdout``.
+        eval_num_envs: parallel envs per eval rollout.
+        eval_episodes: episodes per eval (None derives from the rollout window).
+        charts: render eval charts (matplotlib optional extra).
+        KIND: Stage category tag (eval).
+    """
+
+    real_tracks: tuple[str, ...] = ()
+    eval_num_envs: int = 64
+    eval_episodes: Optional[int] = None
+    charts: bool = True
+
+    KIND = "eval"
+
+    def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
+        return replace(spec, eval=EvalConfig(
+            real_tracks=tuple(self.real_tracks),
+            eval_num_envs=self.eval_num_envs,
+            eval_episodes=self.eval_episodes,
+            charts=self.charts))
 
 
 # ----------------------------------------------------------------------

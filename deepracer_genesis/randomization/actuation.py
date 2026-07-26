@@ -125,7 +125,7 @@ class ActionNoiseDelay(Transform):
     """
 
     def __init__(self, n_envs: int, steer_noise=0.0, speed_noise=0.0,
-                 delay_steps=0, device="cuda"):
+                 delay_steps=0, device="cpu"):   # real callers pass the env device
         """Configure noise scales and allocate the per-env delay buffer."""
         super().__init__(in_keys_inv=["action"], out_keys_inv=["action"])
         self.steer_noise = steer_noise

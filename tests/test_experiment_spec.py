@@ -17,13 +17,11 @@ from deepracer_genesis.experiment import (
     FeatureEnvironment,
     FrozenCNNToFeatureVector,
     PPOLagrangian,
-    REGISTRY,
     SafeRLCameraEnvironment,
     SafeRLFeatureEnvironment,
     SpecError,
     VectorPolicy,
     build,
-    register,
     run,
 )
 
@@ -187,38 +185,45 @@ def test_explicit_lagrangian_budget_filled_from_env():
     assert spec.algorithm.lagrangian["budget"] == 42.0
 
 
-# ---------------------------------------------------------- registry / run
+# ------------------------------------------------- class-based run dispatch
 
-def test_registry_and_run_dispatcher():
-    import experiments  # noqa: F401  registrations fire
 
-    assert "cam_baseline" in REGISTRY
-    assert "SafeTransfer" in REGISTRY
+class _FeatureExp(Experiment):
+    """Inline Experiment class for the dispatch tests (no registry)."""
+    def pipeline(self):
+        return FeatureEnvironment(num_envs=8) >> VectorPolicy(keys=("state",))
 
-    by_name = run("cam_baseline", build_only=True)
-    by_fn = run(REGISTRY["cam_baseline"], build_only=True)
-    assert by_name == by_fn
-    assert not by_name.algorithm.requires_cost
 
-    with_override = run("cam_baseline", build_only=True, seed=3)
+class _SafeExp(Experiment):
+    budget = 25.0
+
+    def spec(self):
+        return (SafeRLFeatureEnvironment(budget=self.budget)
+                >> VectorPolicy(keys=("state",))).build(seed=self.seed)
+
+
+def test_run_dispatches_class_and_instance():
+    by_cls = run(_FeatureExp, build_only=True)
+    by_inst = run(_FeatureExp(), build_only=True)
+    assert by_cls == by_inst
+    assert not by_cls.algorithm.requires_cost
+
+    with_override = run(_FeatureExp, build_only=True, seed=3)
     assert with_override.seed == 3
-    assert with_override.id() != by_name.id()
+    assert with_override.id() != by_cls.id()
 
-    st = run("SafeTransferTight", build_only=True)
-    assert st.algorithm.lagrangian["budget"] == 10.0
 
-    with pytest.raises(SpecError, match="unknown experiment"):
-        run("does_not_exist", build_only=True)
+def test_run_rejects_string_target():
+    with pytest.raises(SpecError, match="referenced by class"):
+        run("some_name", build_only=True)
 
 
 def test_experiment_class_overrides_via_run():
-    import experiments  # noqa: F401
-
-    st = run("SafeTransfer", build_only=True, budget=10.0, seed=2)
+    st = run(_SafeExp, build_only=True, budget=10.0, seed=2)
     assert st.algorithm.lagrangian["budget"] == 10.0
     assert st.seed == 2
     with pytest.raises(SpecError, match="unknown override"):
-        run("cam_baseline", build_only=True, nonexistent_field=1)
+        run(_FeatureExp, build_only=True, nonexistent_field=1)
 
 
 def test_id_ignores_bookkeeping_tags_and_is_cross_process_stable():
@@ -230,8 +235,9 @@ def test_id_ignores_bookkeeping_tags_and_is_cross_process_stable():
     assert a.id() == b.id()                     # tags are not configuration
     assert a.run_dir() != b.run_dir()           # but runs land separately
 
-    code = ("import experiments; from deepracer_genesis.experiment import run; "
-            "print(run('cam_baseline', build_only=True).id())")
+    code = ("from examples import CameraMadronaDr; "
+            "from deepracer_genesis.experiment import run; "
+            "print(run(CameraMadronaDr, build_only=True).id())")
     out = [subprocess.run([sys.executable, "-c", code], capture_output=True,
                           text=True).stdout.strip() for _ in range(2)]
     assert out[0] == out[1] and len(out[0]) == 12   # sha1, not salted hash()
@@ -246,9 +252,8 @@ def test_run_accepts_spec_and_pipeline():
 def test_build_rejects_forgotten_build():
     def forgot():
         return env1_pipeline()          # returns a Pipeline, not a spec
-    register({"_forgot_build": forgot})
     with pytest.raises(SpecError, match="forget"):
-        build("_forgot_build")
+        build(forgot)                   # a factory that forgot to call .build()
 
 
 def test_default_spec_invalid_without_stages():

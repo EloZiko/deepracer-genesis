@@ -315,21 +315,20 @@ This means there are effectively **two config representations** today:
 
 ---
 
-## 8. Extension points (the register patterns)
+## 8. Extension points (pass code directly — no registries)
 
-Three string-keyed registries + one experiment registry let you plug in code
-by name:
+There are **no string-keyed registries**. You plug in behavior by passing the
+Python object (a callable or a class) directly into the spec:
 
-| what          | registry           | decorator              | resolve                | selected by |
-|---------------|--------------------|------------------------|------------------------|-------------|
-| reward fn     | `REWARDS`          | `@register_reward`     | `resolve_reward(name)` | `EnvSpec.reward_fn: str` |
-| feature set   | `FEATURE_SETS`     | `@register_feature_set`| `make_feature_set(name)`| `EnvSpec.feature_set: str` |
-| algorithm     | `ALGORITHMS`       | `@register_algorithm`  | `make_algorithm(builder)`| `AlgorithmSpec.kind: str` |
-| experiment    | `REGISTRY`         | `@experiment` / subclass| name lookup           | CLI name |
+| what          | how you plug it in                                   | selected by |
+|---------------|------------------------------------------------------|-------------|
+| reward fn     | a `RewardFn` callable                                | `EnvSpec.reward` (None = built-in `deepracer`) |
+| feature set   | a `FeatureSet` **class** (or `SelectFeatures` + blocks) | `EnvSpec.feature_set` |
+| algorithm     | an `Algorithm` **class** (`requires_cost` flag)      | `AlgorithmSpec.cls` (None = `PPO`) |
+| experiment    | an `Experiment` **subclass**                         | the class itself — `run(MyExp)` / `MyExp().run()` |
 
-The indirection exists mainly so the spec can be a **JSON-serializable, content
--hashable string** (a callable can't be hashed into a stable run id). The
-trade-off is documented at `rewards.py:26-29`: the spec hashes the reward's
-*name*, not its body, so editing a registered function silently reuses the
-cached run unless you rename it. See `REFACTOR_PLAN.md` for the plan to replace
-these with direct parameter passing.
+An experiment is referenced by its **class**, not a name: run it with
+`run(MyExperiment)`, `MyExperiment().run()`, a `__main__` block, or the CLI
+`module:ClassName` path. The spec's `to_dict()` records callables/classes by
+`__qualname__` for the run record (display only), and the run id is a content
+hash of the config — no cache, so a run always retrains.

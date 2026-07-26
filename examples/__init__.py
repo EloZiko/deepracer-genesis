@@ -1,0 +1,34 @@
+"""Reference examples — copy these to author your own experiments.
+
+Each example is an ``Experiment`` subclass showing the full structure end to
+end: build the Environment, choose camera vs feature-vector observations, choose
+domain randomization, pick the policy and algorithm, and set eval — plus an HPO
+study (``hpo.py``). They blend the axes so you can see each combination:
+
+    FeatureCpu          feature vector, CPU backend, no DR                (Part M)
+    FeatureGpuDr        feature vector, GPU, physics DR via Space types   (Part H)
+    CameraMadronaDr     camera, Madrona renderer, full DR, asymmetric
+    CameraNyx           camera, Nyx path tracer, light DR
+    SafeTransfer        safe-RL camera -> frozen-CNN -> vector, Lagrangian
+    WatchLive           feature vector with the interactive viewer + eval (Parts M/N)
+
+There is no name registry: run an experiment by its class —
+``FeatureCpu().run()`` or ``run(FeatureCpu)`` — or by its ``module:ClassName``
+path from the CLI. ``examples/hpo.py`` is a study, run as a script.
+"""
+
+from .camera import CameraMadronaDr, CameraNyx
+from .feature_vector import FeatureCpu, FeatureGpuDr
+from .safe_rl import SafeTransfer, SafeTransferTight
+from .watch_live import WatchLive
+
+#: the reference experiment classes (for convenience / iteration)
+EXAMPLES = (
+    FeatureCpu, FeatureGpuDr, CameraMadronaDr, CameraNyx,
+    SafeTransfer, SafeTransferTight, WatchLive,
+)
+
+__all__ = [
+    "FeatureCpu", "FeatureGpuDr", "CameraMadronaDr", "CameraNyx",
+    "SafeTransfer", "SafeTransferTight", "WatchLive", "EXAMPLES",
+]

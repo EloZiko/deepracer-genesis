@@ -4,35 +4,34 @@ from __future__ import annotations
 
 from dataclasses import fields, replace
 
-from .registry import REGISTRY, Experiment
+from .authoring import Experiment
 from .spec import ExperimentSpec, SpecError
 from .stages import Pipeline
 
 
 def build(target, **overrides) -> ExperimentSpec:
-    """Resolve any experiment handle into a validated ExperimentSpec.
+    """Resolve an experiment handle into a validated ExperimentSpec.
 
     Args:
-        target: a registered name, a spec-factory function, an
-            ``Experiment`` class or instance, a ``Pipeline``, or a spec.
+        target: an ``Experiment`` class or instance, a spec-factory function,
+            a ``Pipeline``, or an ``ExperimentSpec``. There is no name
+            registry — pass the class itself (``run(MyExperiment)``).
         **overrides: route by name — keys matching the Experiment class's
             config attributes go to the class
-            (``run("SafeTransfer", budget=10.0)``); the rest must be
+            (``run(SafeTransfer, budget=10.0)``); the rest must be
             ExperimentSpec fields (``seed``, ``variant``, ...).
 
     Returns:
         The validated, frozen ExperimentSpec.
 
     Raises:
-        SpecError: unknown target, unknown override, or invalid config.
+        SpecError: unknown target type, unknown override, or invalid config.
     """
     if isinstance(target, str):
-        try:
-            target = REGISTRY[target]
-        except KeyError:
-            raise SpecError(
-                f"unknown experiment {target!r}; registered: {sorted(REGISTRY)} "
-                "(did you import your experiments package?)") from None
+        raise SpecError(
+            f"experiments are referenced by class, not name (got {target!r}); "
+            "pass the Experiment class, e.g. run(MyExperiment). The CLI accepts "
+            "a 'module:ClassName' path.")
     if isinstance(target, type) and issubclass(target, Experiment):
         cls_kw = {k: overrides.pop(k) for k in list(overrides) if hasattr(target, k)}
         target = target(**cls_kw)

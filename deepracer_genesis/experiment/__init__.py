@@ -8,6 +8,7 @@ from .spec import (
     AlgorithmSpec,
     EncoderSpec,
     EnvSpec,
+    EvalConfig,
     ExperimentSpec,
     ObsDRSpec,
     PolicySpec,
@@ -23,6 +24,7 @@ from .stages import (
     DomainRandomizationCamera,
     DomainRandomizationTrackAppearance,
     DomainRandomizationPhysics,
+    Evaluation,
     FeatureEnvironment,
     FrozenCNNToFeatureVector,
     Pipeline,
@@ -33,7 +35,7 @@ from .stages import (
     Stage,
     VectorPolicy,
 )
-from .registry import REGISTRY, Experiment, register
+from .authoring import Experiment
 from .run import build, run
 
 __all__ = [
@@ -48,6 +50,7 @@ __all__ = [
     "FrozenCNNToFeatureVector",
     "AsymmetricCameraPolicy", "VectorPolicy", "AsymmetricVectorPolicy",
     "PPO", "PPOLagrangian", "Algo", "RewardShaping",
-    "REGISTRY", "register", "Experiment",
+    "Evaluation", "EvalConfig",
+    "Experiment",
     "build", "run",
 ]

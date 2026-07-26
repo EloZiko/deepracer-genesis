@@ -29,8 +29,7 @@ def main():
                              "and per-env topdown cameras stay at the DeepRacer-native 160x120")
     args = parser.parse_args()
 
-    gs.init(backend=gs.cuda, logging_level="warning")
-
+    from deepracer_genesis._gs import ensure_init
     from deepracer_genesis.configs.cfgs import get_env_cfg, get_train_cfg
     from deepracer_genesis.envs import DeepRacerEnv
 
@@ -38,6 +37,7 @@ def main():
     tracks = args.tracks.split(",")
     env_cfg = get_env_cfg(vision=True, randomize=args.randomize, topdown=True,
                           track=tracks if len(tracks) > 1 else tracks[0])
+    ensure_init(env_cfg["sim"]["backend"])   # SSOT gs.init (Part M)
     env_cfg["spawn"]["random_start"] = True
     if args.nyx:
         env_cfg["vision"]["vision_renderer"] = "nyx"

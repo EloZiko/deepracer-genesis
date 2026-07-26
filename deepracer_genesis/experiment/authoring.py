@@ -1,36 +1,13 @@
-"""Name registry + Experiment base class (plan section 1.2).
+"""The ``Experiment`` authoring base class (no registry).
 
-A registered name is a handle to Python code, not a config file path.
-Registration is explicit: an authoring package declares an ``EXPERIMENTS``
-map and hands it to :func:`register` (typically from its ``__init__``), so
-`run("cam_baseline")` resolves after ``import experiments``. There is no
-decorator/subclass auto-registration side effect.
+Author an experiment as a class: hyperparameters are class attributes, the
+pipeline goes in ``pipeline()`` (or override ``spec()`` for full control), and
+you run it directly — ``MyExperiment().run()`` or ``run(MyExperiment)``. There
+is no name registry: an experiment is referenced by its Python class, not a
+string handle.
 """
 
 from __future__ import annotations
-
-from typing import Callable, Union
-
-REGISTRY: dict[str, Union[Callable, type]] = {}
-
-
-def register(mapping: dict[str, Union[Callable, type]]) -> None:
-    """Register an explicit name -> experiment-handle map.
-
-    Args:
-        mapping: Names to experiment handles (a zero-arg spec factory, an
-            ``Experiment`` subclass, a ``Pipeline``, or an ``ExperimentSpec``)
-            — anything :func:`deepracer_genesis.experiment.run.build` accepts.
-
-    Raises:
-        ValueError: If a name is already registered by a different handle.
-    """
-    for key, handle in mapping.items():
-        existing = REGISTRY.get(key)
-        if existing is not None and existing is not handle:
-            raise ValueError(f"experiment name {key!r} already registered "
-                             f"(by {existing!r})")
-        REGISTRY[key] = handle
 
 
 class Experiment:

@@ -38,12 +38,9 @@ _NEUTRAL_PHYSICS = {
 }
 
 
-def _ensure_genesis():
-    try:
-        gs.init(backend=gs.cuda, logging_level="warning")
-    except Exception as e:  # second init in one process
-        if "initialized" not in str(e).lower():
-            raise
+def _ensure_genesis(backend: str = "gpu"):
+    from .._gs import ensure_init      # SSOT gs.init (Part M)
+    ensure_init(backend)
 
 
 class Builder:
@@ -71,7 +68,7 @@ class Builder:
         randomize = bool(obs_dr.physics or obs_dr.camera_jitter)
         track = list(env.tracks) if len(env.tracks) > 1 else env.tracks[0]
         cfg = get_env_cfg(vision=(env.modality == "camera"), track=track,
-                          randomize=randomize)
+                          randomize=randomize, backend=env.backend, view=env.view)
         cfg["vision"]["camera_res"] = tuple(env.resolution)
         cfg["vision"]["camera_fov"] = env.fov
         cfg["obs"]["lookahead_k"] = env.lookahead_k
@@ -111,7 +108,7 @@ class Builder:
             The cached DeepRacerEnv.
         """
         if self._sim is None:
-            _ensure_genesis()
+            _ensure_genesis(self.spec.env.backend)
             cfg = self.sim_cfg()
             if extra_cfg:
                 cfg.update(extra_cfg)

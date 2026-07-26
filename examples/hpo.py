@@ -1,13 +1,12 @@
-"""Hyperparameter optimization with Optuna — single file, single GPU.
+"""HPO example: an Optuna study over PPO hyperparameters (the last mile).
 
-Trials run IN-PROCESS (Genesis scenes rebuild fine within one process), so
-this is plain Python end to end: sample a config, `run()` it, report the
-periodic deterministic evals (`eval_every_steps`) to the pruner through the
-trainer's `on_eval` hook, and let Hyperband kill bad trials mid-training.
-The study is resumable (sqlite); every trial trains from scratch (no result
-cache) and gets its own run dir via the spec's content-hash id().
+Trials run in-process: sample a config from a declarative ``{name: Space}`` map
+(the SAME Space types domain randomization uses — Part H), ``run()`` it, and
+report the periodic deterministic evals to the pruner so Hyperband can kill bad
+trials mid-training. Not a single registered experiment (it is a study), so it
+runs as a script:
 
-Run:  uv run experiments/hpo_optuna.py
+    uv run examples/hpo.py
 """
 
 from __future__ import annotations
@@ -24,9 +23,7 @@ EVAL_EVERY = int(os.environ.get("HPO_EVAL_EVERY", 500_000))
 N_TRIALS = int(os.environ.get("HPO_TRIALS", 20))
 METRIC = "completion_rate"
 
-# The search space as declarative {name: Space} — the SAME Space types domain
-# randomization uses (Part H). Each site chooses its verb: HPO calls
-# `space.suggest(trial, name)`; DR would call `space.sample(n, device)`.
+# declare the search space once; each site chooses its verb (suggest vs sample)
 SEARCH_SPACE = {
     "lr": FloatRange(1e-4, 1e-2, log=True),
     "entropy_coef": FloatRange(1e-3, 3e-2, log=True),
@@ -36,12 +33,10 @@ SEARCH_SPACE = {
 
 
 def objective(trial: optuna.Trial) -> float:
-    # the sampled values go straight into the PPO stage — the same pipeline
-    # syntax as any experiment, no path-string overrides
     p = {name: space.suggest(trial, name) for name, space in SEARCH_SPACE.items()}
     spec = (
-        FeatureEnvironment(lookahead_k=10, num_envs=1024)
-        >> VectorPolicy()
+        FeatureEnvironment(num_envs=1024)
+        >> VectorPolicy(keys=("state",))
         >> PPO(lr=p["lr"], entropy_coef=p["entropy_coef"],
                epochs=p["epochs"], clip=p["clip"])
     ).build(seed=0, total_env_steps=STEPS, eval_every_steps=EVAL_EVERY,
@@ -64,7 +59,7 @@ if __name__ == "__main__":
         pruner=optuna.pruners.HyperbandPruner(
             min_resource=EVAL_EVERY, max_resource=STEPS, reduction_factor=3),
         study_name="feature_ppo",
-        storage="sqlite:///runs/hpo/study.db",   # resumable + inspectable
+        storage="sqlite:///runs/hpo/study.db",
         load_if_exists=True,
     )
     study.optimize(objective, n_trials=N_TRIALS)

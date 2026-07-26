@@ -60,7 +60,17 @@ nav:
       - HPO: guides/hpo.md
       - Deployment (ONNX): guides/deployment.md
   - API:
-      - experiment: api/experiment.md
+      - experiment:
+          - Overview: api/experiment/index.md
+          - spec: api/experiment/spec.md
+          - stages: api/experiment/stages.md
+          - authoring (Experiment): api/experiment/authoring.md
+          - run: api/experiment/run.md
+          - trainer: api/experiment/trainer.md
+          - evaluator: api/experiment/evaluator.md
+          - ablation: api/experiment/ablation.md
+          - report: api/experiment/report.md
+          - visualize: api/experiment/visualize.md
       - algorithms: api/algorithms.md
       - agents: api/agents.md
       - datasets: api/datasets.md

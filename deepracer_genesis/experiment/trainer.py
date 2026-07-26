@@ -174,17 +174,42 @@ class Trainer:
                             if isinstance(v, (int, float)) and v == v})
         writer.close()
 
+        # Part N.3: out-of-loop per-track holdout eval (opt-in: real_tracks set).
+        # Guarded — a completed training run must not be lost if Genesis can't
+        # rebuild a scene in-process (camera mode should eval per-process).
+        holdout = {}
+        if spec.eval.real_tracks:
+            try:
+                from .evaluator import build_single_track_sim, evaluate_on_tracks
+                holdout = evaluate_on_tracks(
+                    algo.eval_actor, spec.eval.real_tracks,
+                    sim_factory=lambda t: build_single_track_sim(
+                        spec, t, spec.eval.eval_num_envs),
+                    obs_transform=obs_transform, cost_budget=budget)
+            except Exception as e:  # noqa: BLE001 - never lose the trained model
+                print(f"[trainer] holdout eval skipped ({type(e).__name__}: {e}); "
+                      "camera/multi-scene eval should run per-process")
+
         record = EvalRecord(
             spec_id=spec.id(), spec=spec.to_dict(), seed=spec.seed,
             ablation_group=spec.ablation_group, variant=spec.variant,
             metrics=metrics,
             eval_history=eval_history,
+            holdout=holdout,
             train={"wall_clock_s": round(wall, 1),
                    "steps_per_s": round(frames / wall, 1),
                    "total_env_steps": frames,
                    "checkpoint": ckpt},
         )
         record.save(run_dir)
+
+        # Part N.4: eval charts (opt-in via EvalConfig.charts; matplotlib optional)
+        if spec.eval.charts:
+            try:
+                from .charts import render_charts
+                render_charts(record, run_dir)
+            except ImportError:
+                pass   # matplotlib is an optional extra
         if mlflow:
             mlflow.log_metrics({f"final.{k}": float(v) for k, v in metrics.items()
                                 if isinstance(v, (int, float)) and v == v})

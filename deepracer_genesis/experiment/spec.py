@@ -49,10 +49,15 @@ class EnvSpec:
         emits_cost: whether the env produces a cost signal for SafeRL.
         cost_fn: which cost function to emit.
         cost_budget: per-episode cost budget.
+        backend: Genesis compute backend ("gpu" or "cpu") — Part M.
+        view: interactive/offscreen view renderer ("none"/"gui"/"spectator"/
+            "topdown") — Part M.
     """
 
     modality: Literal["camera", "feature"]
     render: Literal["madrona", "nyx", "none"] = "none"
+    backend: Literal["gpu", "cpu"] = "gpu"
+    view: Literal["none", "gui", "spectator", "topdown"] = "none"
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
     lookahead_k: int = 10
@@ -185,6 +190,28 @@ class AlgorithmSpec:
 
 
 @dataclass(frozen=True)
+class EvalConfig:
+    """First-class evaluation config (Part N).
+
+    Makes eval intent explicit instead of silently defaulting. The out-of-loop
+    per-track holdout eval is opt-in: it runs after ``fit()`` only when
+    ``real_tracks`` is non-empty.
+
+    Attributes:
+        real_tracks: out-of-loop holdout tracks evaluated INDEPENDENTLY (a fresh
+            single-track sim per track); empty = no holdout eval.
+        eval_num_envs: parallel envs for each eval rollout.
+        eval_episodes: episodes per eval (None = derive from the rollout window).
+        charts: whether to render eval charts (matplotlib, optional extra).
+    """
+
+    real_tracks: tuple[str, ...] = ()
+    eval_num_envs: int = 64
+    eval_episodes: Optional[int] = None
+    charts: bool = True
+
+
+@dataclass(frozen=True)
 class ExperimentSpec:
     """Frozen, content-hashed experiment config assembled by the `>>` DSL.
 
@@ -195,6 +222,7 @@ class ExperimentSpec:
         policy: the policy/network slice.
         action_dr: action-side domain randomization.
         algorithm: the training-algorithm slice.
+        eval: evaluation config (periodic + out-of-loop holdout + charts).
         total_env_steps: total environment steps to train for.
         eval_every_steps: eval interval in env-steps (0 = final eval only).
         seed: random seed.
@@ -208,6 +236,7 @@ class ExperimentSpec:
     policy: Optional[PolicySpec] = None
     action_dr: ActionDRSpec = field(default_factory=ActionDRSpec)
     algorithm: Optional[AlgorithmSpec] = None
+    eval: EvalConfig = field(default_factory=EvalConfig)
     total_env_steps: int = 5_000_000
     eval_every_steps: int = 0        # 0 = final eval only; N = also every N env-steps
     seed: int = 0
@@ -284,11 +313,34 @@ class ExperimentSpec:
             raise SpecError(
                 "heterogeneous tracks are Madrona-only (repo constraint); "
                 "render='nyx' with tracks=%r" % (env.tracks,))
+        # Part M Tier 2: Madrona/Nyx are GPU-only. A rasterizer obs renderer for
+        # camera-on-CPU is not yet implemented; fail clearly rather than crash.
+        if env.modality == "camera" and env.backend == "cpu":
+            raise SpecError(
+                "camera obs on backend='cpu' needs a rasterizer ObsRenderer "
+                "(Madrona/Nyx are GPU-only); not yet implemented. Use "
+                "backend='gpu' for camera, or a feature env on CPU.")
         if env.emits_cost:
             if env.cost_fn not in VALID_COST_FNS:
                 raise SpecError("cost_fn must be one of %s; got %r" % (VALID_COST_FNS, env.cost_fn))
             if env.cost_budget is None or env.cost_budget <= 0:
                 raise SpecError("cost-emitting env needs a positive cost_budget")
+        # Part M: the interactive viewer is a debug/watch path (needs a display,
+        # small batch), not a throughput path — warn, don't hard-fail.
+        if env.view == "gui" and env.num_envs > 64:
+            warnings.warn(
+                "view='gui' opens an interactive window and is a debug/watch path; "
+                "num_envs=%d is large for it — consider a small batch" % env.num_envs,
+                stacklevel=2)
+        # The GUI viewer + physics DR on the GPU backend can hit a Genesis<->torch
+        # cross-stream memory race (viewer GL/CUDA work racing the DR writes).
+        # CPU has no CUDA streams, so it is immune — recommend it for watching.
+        if (env.view == "gui" and env.backend == "gpu" and self.obs_dr.physics):
+            warnings.warn(
+                "view='gui' + physics DR on backend='gpu' can hit a Genesis/torch "
+                "CUDA stream race; use backend='cpu' for interactive watching "
+                "(no CUDA => no race), or drop the viewer for DR training.",
+                stacklevel=2)
 
     def _validate_key_routing(self) -> None:
         """Check actor/critic obs keys, discrete actions, and camera routing.

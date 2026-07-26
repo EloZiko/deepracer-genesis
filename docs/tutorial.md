@@ -47,8 +47,9 @@ tensorboard --logdir runs/
 
 ```python
 from deepracer_genesis.experiment.visualize import rollout_video
-rollout_video("MyFirst")                       # bird's-eye mp4 in the run dir
-rollout_video("MyFirst", track="Monaco")       # same policy, unseen track
+from experiments.my_first import MyFirst
+rollout_video(MyFirst)                          # bird's-eye mp4 in the run dir
+rollout_video(MyFirst, tracks=("Monaco",))      # same policy, unseen track
 ```
 
 ## 4. Get more tracks / draw your own
@@ -109,14 +110,20 @@ of one env with the same `episode` id.
 ## 7. Sweeps, ablations, HPO
 
 ```python
-from deepracer_genesis.experiment import run
-from deepracer_genesis.experiment.ablation import seeds, sweep
-for spec in seeds(run("MyFirst", build_only=True), 3):
-    run(spec)                                   # 3 seeds, 3 run dirs
+from deepracer_genesis.experiment import run, build
+from deepracer_genesis.experiment.ablation import override
+from experiments.my_first import MyFirst
+
+base = build(MyFirst)                            # a frozen ExperimentSpec
+for seed in range(3):
+    run(override(base, "seed", seed))           # 3 seeds, 3 run dirs
 
 from deepracer_genesis.experiment.report import build_report
 build_report("runs")                            # runs/report.md aggregate table
 ```
+
+Variants are plain comprehensions over `override(spec, "dotted.path", value)`
+(automatic `sweep`/`grid`/`seeds` generators were removed — build the list yourself).
 
 Hyperparameter optimization with pruning: `uv run experiments/hpo_optuna.py`
 (TPE + Hyperband over lr/entropy/epochs/clip; trials run in-process; the
@@ -142,9 +149,9 @@ mlflow ui --backend-store-uri sqlite:///$PWD/mlflow.db
 | Per-env scene variants | no (z-fights) | no (refuses heterogeneous) | yes |
 | Notes | no mipmaps; needs Vulkan | OBJ meshes only; one scene per process | any resolution; drives the bird's-eye "spectator" camera everywhere |
 
-Default recipe: train on Madrona; validate the policy's frames on Nyx
-(`cam_nyx` experiment); record videos with the rasterizer spectator (that
-happens automatically in `rollout_video`).
+Default recipe: train on Madrona; validate the policy's frames on Nyx (a
+`render="nyx"` variant of your camera experiment); record videos with the
+rasterizer spectator (that happens automatically in `rollout_video`).
 
 ## 10. Saving / reusing models
 
@@ -160,7 +167,7 @@ runs/<group>/<variant>-<seed>-<id>/
 ```
 
 ```python
-rollout_video("MyFirst", ckpt="wherever/best.pt")     # load explicitly
+rollout_video(MyFirst, ckpt="wherever/best.pt")       # load explicitly
 ```
 
 On Colab, mount Drive and `shutil.copytree(run_dir, "/content/drive/MyDrive/...")`

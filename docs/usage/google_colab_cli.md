@@ -46,7 +46,7 @@ without the camera renderer:
 ```python
 from deepracer_genesis.experiment.visualize import rollout_video
 from IPython.display import Video
-mp4 = rollout_video("ColabRacer", root="/content/runs", steps=300, num_envs=8,
+mp4 = rollout_video(ColabRacer, root="/content/runs", steps=300, num_envs=8,
                     spectator_res=(640, 480))
 Video(mp4, embed=True, width=720)
 ```

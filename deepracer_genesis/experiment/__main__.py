@@ -1,13 +1,20 @@
-"""CLI for running registered experiments.
+"""CLI for running an experiment class by its ``module:ClassName`` path.
 
-Names resolve via `import experiments` registrations, not file paths.
+There is no name registry — an experiment is a Python class, referenced
+directly. Example::
+
+    python -m deepracer_genesis.experiment examples.camera:CameraMadronaDR
+    python -m deepracer_genesis.experiment my_pkg.runs:MyExperiment --seed 3
+
+You can also just run an experiment file directly if it has a ``__main__``
+(e.g. ``python examples/camera.py``).
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-import sys
+import importlib
 
 
 def _parse_set(pairs: list[str]) -> dict:
@@ -24,11 +31,26 @@ def _parse_set(pairs: list[str]) -> dict:
     return out
 
 
+def _resolve(ref: str):
+    """Import ``module:ClassName`` (or ``module.ClassName``) and return the object."""
+    module_path, sep, attr = ref.partition(":")
+    if not sep:
+        module_path, _, attr = ref.rpartition(".")
+    if not module_path or not attr:
+        raise SystemExit(
+            f"experiment ref must be 'module:ClassName' (got {ref!r})")
+    try:
+        module = importlib.import_module(module_path)
+        return getattr(module, attr)
+    except (ImportError, AttributeError) as e:
+        raise SystemExit(f"could not resolve {ref!r}: {e}")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m deepracer_genesis.experiment",
                                      description=__doc__)
-    parser.add_argument("name", nargs="?", help="registered experiment name")
-    parser.add_argument("--list", action="store_true", help="list registered names")
+    parser.add_argument("ref", nargs="?",
+                        help="experiment as 'module:ClassName' (e.g. examples.camera:CameraNyx)")
     parser.add_argument("--report", action="store_true",
                         help="regenerate runs/report.md from stored records")
     parser.add_argument("--seed", type=int, default=None)
@@ -45,24 +67,15 @@ def main(argv: list[str] | None = None) -> int:
                         help="with --video: evaluate on this track instead")
     args = parser.parse_args(argv)
 
-    try:
-        import experiments  # noqa: F401  (registrations fire)
-    except ImportError:
-        print("warning: no `experiments` package importable from cwd", file=sys.stderr)
-
-    from .registry import REGISTRY
-
-    if args.list:
-        for name in sorted(REGISTRY):
-            print(name)
-        return 0
     if args.report:
         from .report import build_report
         build_report(args.root)
         print(f"wrote {args.root}/report.md and {args.root}/report.csv")
         return 0
-    if not args.name:
-        parser.error("experiment name required (or --list / --report)")
+    if not args.ref:
+        parser.error("experiment ref required (module:ClassName) — or --report")
+
+    target = _resolve(args.ref)
 
     overrides = _parse_set(args.set)
     if args.seed is not None:
@@ -73,12 +86,11 @@ def main(argv: list[str] | None = None) -> int:
         overrides["eval_every_steps"] = args.eval_every
 
     from .run import run
-    record = run(args.name, root=args.root, **overrides)
+    run(target, root=args.root, **overrides)
 
     if args.video:
         from .visualize import rollout_video
-        path = rollout_video(args.name, root=args.root, track=args.track,
-                             **overrides)
+        path = rollout_video(target, root=args.root, track=args.track, **overrides)
         print(f"video: {path}")
     return 0
 

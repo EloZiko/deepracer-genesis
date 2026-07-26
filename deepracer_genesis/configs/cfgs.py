@@ -7,7 +7,7 @@ from .schema import EnvConfig
 
 
 def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
-                topdown=False) -> EnvConfig:
+                topdown=False, backend="gpu", view="none") -> EnvConfig:
     """Build the default nested env config, one typed section per subsystem."""
     return {
         "sim": {
@@ -15,6 +15,8 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "decimation": 2,          # control at 50 Hz
             "episode_length_s": 30.0,
             "track": track,
+            "backend": backend,       # "gpu" | "cpu" (Part M)
+            "view": view,             # "none" | "gui" | "spectator" | "topdown"
         },
         # action mapping (original DeepRacer Box([-30, 0.1], [30, 4.0]))
         "action": {

@@ -18,18 +18,21 @@ def main():
     parser.add_argument("--randomize", action="store_true")
     parser.add_argument("--track", default="reinvent_base")
     parser.add_argument("--exp_name", default="deepracer")
+    parser.add_argument("--backend", choices=("gpu", "cpu"), default="gpu",
+                        help="Genesis compute backend")
     parser.add_argument("--resume", default=None, help="checkpoint path to resume from")
     args = parser.parse_args()
 
-    gs.init(backend=gs.cuda, logging_level="warning")
-
+    from deepracer_genesis._gs import ensure_init
     from deepracer_genesis.algorithms.rsl_rl import build_runner
     from deepracer_genesis.configs.cfgs import get_env_cfg
     from deepracer_genesis.envs import DeepRacerEnv
 
     if args.nyx:
         args.vision = True
-    env_cfg = get_env_cfg(vision=args.vision, track=args.track, randomize=args.randomize)
+    env_cfg = get_env_cfg(vision=args.vision, track=args.track,
+                          randomize=args.randomize, backend=args.backend)
+    ensure_init(env_cfg["sim"]["backend"])   # SSOT gs.init (Part M)
     if args.nyx:
         env_cfg["vision"]["vision_renderer"] = "nyx"
     log_dir = os.path.join("logs", args.exp_name)

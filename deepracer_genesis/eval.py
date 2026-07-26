@@ -23,10 +23,9 @@ def main():
                              "the onboard camera stays at its training resolution")
     args = parser.parse_args()
 
-    gs.init(backend=gs.cuda, logging_level="warning")
-
     from rsl_rl.runners import OnPolicyRunner
 
+    from deepracer_genesis._gs import ensure_init
     from deepracer_genesis.configs.cfgs import get_env_cfg, get_train_cfg
     from deepracer_genesis.envs import DeepRacerEnv
 
@@ -37,6 +36,8 @@ def main():
         env_cfg, train_cfg = saved["env_cfg"], saved["train_cfg"]
     else:
         env_cfg, train_cfg = get_env_cfg(vision=True), get_train_cfg(vision=True)
+
+    ensure_init(env_cfg["sim"].get("backend", "gpu"))   # SSOT gs.init (Part M)
 
     env_cfg["spawn"]["random_start"] = True   # spread the agents around the track
     env_cfg["vision"]["spectator"] = True      # high-res rasterizer cam, all agents in one view

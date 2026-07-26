@@ -39,6 +39,7 @@ class EvalRecord:
     metrics: dict = field(default_factory=dict)
     train: dict = field(default_factory=dict)   # steps_per_s, wall_clock_s, ...
     eval_history: list = field(default_factory=list)  # periodic evals: [{frames, **metrics}]
+    holdout: dict = field(default_factory=dict)  # out-of-loop per-track eval: {track: {metrics}}
     created_at: str = ""
 
     def save(self, run_dir: str) -> str:
@@ -222,3 +223,57 @@ def aggregate_episodes(
             metrics["cost_violation_rate"] = float((ep_costs > cost_budget).float().mean())
             metrics["budget_satisfied"] = bool(ep_costs.mean() <= cost_budget)
     return metrics
+
+
+# ---------------------------------------------------------------------------
+# Out-of-loop per-track holdout evaluation (Part N.3)
+
+def build_single_track_sim(spec, track: str, num_envs: int):
+    """Build a fresh single-track sim for ``track`` from ``spec``.
+
+    A fresh sim per track sidesteps the one-scene-per-process / camera
+    superimpose constraint and yields clean per-track metrics. Camera mode
+    should call this in its own process (one per track).
+
+    Args:
+        spec: The experiment spec (its sim_cfg is reused, track overridden).
+        track: The single track name to evaluate on.
+        num_envs: Parallel envs for the eval rollout.
+
+    Returns:
+        A built DeepRacerEnv on the spec's backend for exactly ``track``.
+    """
+    from .._gs import ensure_init
+    from ..envs import DeepRacerEnv
+    from .builder import Builder
+
+    cfg = Builder(spec).sim_cfg()
+    cfg["sim"]["track"] = track
+    ensure_init(cfg["sim"].get("backend", "gpu"))
+    return DeepRacerEnv(num_envs=num_envs, env_cfg=cfg)
+
+
+def evaluate_on_tracks(actor, tracks, *, sim_factory, obs_transform=None,
+                       cost_budget=None) -> dict:
+    """Evaluate ``actor`` on each track INDEPENDENTLY; return {track: metrics}.
+
+    Args:
+        actor: Deterministic policy module (see :func:`evaluate_policy`).
+        tracks: The array of track names to evaluate on (e.g. the real/printed
+            holdout tracks).
+        sim_factory: ``track -> sim`` builder (e.g. a partial over
+            :func:`build_single_track_sim`); called once per track so each gets
+            a fresh scene.
+        obs_transform: Optional obs transform applied before the policy.
+        cost_budget: Per-episode cost budget (enables cost metrics).
+
+    Returns:
+        ``{track: metrics}`` — per-track metrics from :func:`evaluate_policy`,
+        the clean per-track breakdown the aggregate path cannot produce.
+    """
+    out = {}
+    for track in tracks:
+        sim = sim_factory(track)
+        out[track] = evaluate_policy(sim, actor, obs_transform=obs_transform,
+                                     cost_budget=cost_budget)
+    return out

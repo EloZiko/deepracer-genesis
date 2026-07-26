@@ -1,0 +1,112 @@
+{
+  "env": {
+    "modality": "feature",
+    "render": "none",
+    "backend": "gpu",
+    "view": "gui",
+    "resolution": [
+      160,
+      120
+    ],
+    "fov": 90.0,
+    "lookahead_k": 10,
+    "feature_set": null,
+    "feature_params": {},
+    "tracks": [
+      "reinvent_base"
+    ],
+    "num_envs": 16,
+    "random_start": true,
+    "random_direction": false,
+    "reward": null,
+    "reward_scales": {},
+    "emits_cost": false,
+    "cost_fn": null,
+    "cost_budget": null
+  },
+  "obs_dr": {
+    "image_aug": {},
+    "camera_jitter": {},
+    "physics": {
+      "friction_range": [
+        0.6,
+        1.4
+      ],
+      "mass_shift_kg": 0.2,
+      "com_shift_m": 0.01,
+      "steer_kp_scale": [
+        0.8,
+        1.2
+      ],
+      "wheel_kv_scale": [
+        0.8,
+        1.2
+      ],
+      "armature_range": [
+        0.0,
+        0.01
+      ]
+    },
+    "appearance": {}
+  },
+  "encoder": {
+    "kind": "none",
+    "checkpoint": null,
+    "output_dim": null,
+    "layer": null,
+    "out_key": "encoded"
+  },
+  "policy": {
+    "actor_keys": [
+      "state"
+    ],
+    "critic_keys": [
+      "state"
+    ],
+    "cnn": null,
+    "mlp": {
+      "hidden": [
+        256,
+        128,
+        64
+      ],
+      "activation": "elu"
+    },
+    "actions": null
+  },
+  "action_dr": {
+    "steer_noise": 0.0,
+    "speed_noise": 0.0,
+    "delay_steps": 0
+  },
+  "algorithm": {
+    "cls": null,
+    "ppo": {
+      "clip": 0.2,
+      "epochs": 5,
+      "minibatches": 4,
+      "gamma": 0.99,
+      "gae_lambda": 0.95,
+      "lr": 0.0003,
+      "entropy_coef": 0.01,
+      "max_grad_norm": 1.0,
+      "horizon": 24
+    },
+    "lagrangian": {},
+    "params": {}
+  },
+  "eval": {
+    "real_tracks": [
+      "reinvent_base",
+      "Oval_track"
+    ],
+    "eval_num_envs": 32,
+    "eval_episodes": null,
+    "charts": true
+  },
+  "total_env_steps": 2000000,
+  "eval_every_steps": 500000,
+  "seed": 0,
+  "ablation_group": "examples",
+  "variant": "watch_live"
+}

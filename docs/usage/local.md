@@ -4,8 +4,8 @@ DeepRacer-Genesis runs on **Linux x86-64 with an NVIDIA GPU**. Python 3.10–3.1
 (3.12 recommended).
 
 > Mental model in one sentence: `uv sync` installs Genesis + rsl-rl + TorchRL, then
-> you train either with the config-as-code experiment framework (recommended) or the
-> legacy flag-based CLI.
+> you train by defining an `Experiment` subclass and running it (recommended), or via
+> the legacy flag-based `train.py` CLI.
 
 ---
 
@@ -36,16 +36,8 @@ and patches the dlopen name. Feature-vector (no-camera) training does not need t
 
 ## Train
 
-**Experiment framework (recommended):**
-
-```bash
-python -m deepracer_genesis.experiment feature_baseline --seed 3 --eval-every 1000000
-python -m deepracer_genesis.experiment --list        # registered experiments
-python -m deepracer_genesis.experiment --report      # aggregate runs/report.md
-python -m deepracer_genesis.experiment --video --track reInvent2019_track
-```
-
-Or from Python (see the [tutorial](../tutorial.md)):
+**Experiment framework (recommended).** Author an `Experiment` subclass and run it
+(see [Experiments](../concepts/experiments.md)):
 
 ```python
 from deepracer_genesis.experiment import Experiment, FeatureEnvironment, VectorPolicy, run
@@ -60,7 +52,14 @@ class MyFirst(Experiment):
 run(MyFirst)     # ~90s on an RTX 4060 Ti
 ```
 
-**Legacy CLI:**
+Put it in a file under `experiments/` with `run(MyFirst)` under `__main__` and run it
+directly:
+
+```bash
+uv run experiments/my_first.py
+```
+
+**Legacy CLI** (flag-based, separate entry point):
 
 ```bash
 python -m deepracer_genesis.train -B 4096 --max_iterations 500 --exp_name teacher

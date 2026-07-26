@@ -17,6 +17,8 @@ class SimConfig(TypedDict):
     decimation: int
     episode_length_s: float
     track: object   # str name, or list/tuple of names for multi-track
+    backend: Literal["gpu", "cpu"]   # Genesis compute backend (Part M)
+    view: Literal["none", "gui", "spectator", "topdown"]   # ViewRenderer (Part M)
 
 
 class ActionConfig(TypedDict):

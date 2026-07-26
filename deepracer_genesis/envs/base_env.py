@@ -133,6 +133,10 @@ class DeepRacerEnv:
         names = track if isinstance(track, (list, tuple)) else [track]
         self.track = MultiTrack(names, num_envs, self.device)
 
+        # view="gui" opens the interactive Genesis viewer window (Part M); the
+        # explicit show_viewer arg still works and either one enables it.
+        self.view = sim.get("view", "none")
+        show_viewer = show_viewer or self.view == "gui"
         build_scene(self, env_cfg, show_viewer)      # -> self.renderer, scene, car, track_entity
         self.car.configure(env_cfg["car"], self.device)
         # mirror the car's dof handles on the env (domain randomization reads them)
@@ -403,8 +407,20 @@ class DeepRacerEnv:
         self.car.reset_pose(qpos, env_ids)
 
         if self.cfg["rand"]["randomize"]:
-            randomize_physics(self, env_ids)
+            # Genesis reads torch-filled tensors (DR draws, index masks) on its
+            # OWN CUDA stream without waiting for torch's fill kernel, and torch's
+            # caching allocator doesn't track genesis's stream -> a cross-stream
+            # race gives sporadic CUDA_ERROR_ILLEGAL_ADDRESS (surfaces under the
+            # TorchRL collector / interactive viewer; hidden by
+            # CUDA_LAUNCH_BLOCKING=1). randomize_physics fences BEFORE each write
+            # (fill done + prior kernel drained); the trailing fence below drains
+            # the last DR write + camera-mount DR before the episode logging /
+            # _post_physics reallocate. Only the DR path pays this; plain resets
+            # are covered by step()'s end-of-step fence.
+            randomize_physics(self, env_ids)      # self-fences before each write
             self.renderer.randomize_mount(self, env_ids)   # camera-mount DR (Madrona only)
+            if self.device.type == "cuda":
+                torch.cuda.synchronize()
 
         # episode logging
         self.extras["log"] = {}

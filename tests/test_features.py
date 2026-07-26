@@ -36,14 +36,16 @@ def test_explicit_classic_matches_default():
 # --------------------------------------------- SelectFeatures (Part K.2)
 def test_select_features_full_matches_classic_width():
     from deepracer_genesis.envs.features import SelectFeatures
-    from experiments.base_feature_vector import FULL
+    FULL = ("v_forward", "v_lateral", "yaw_rate", "lateral", "heading",
+            "last_action", "lookahead_xy")
     assert (feature_dim(SelectFeatures, lookahead_k=10, params={"features": FULL})
             == feature_dim(ClassicFeatures, lookahead_k=10))
 
 
 def test_select_features_subset_widths():
     from deepracer_genesis.envs.features import SelectFeatures
-    from experiments.base_feature_vector import KINEMATIC, MINIMAL
+    MINIMAL = ("v_forward", "lateral", "heading")
+    KINEMATIC = ("v_forward", "v_lateral", "yaw_rate", "lateral", "heading", "last_action")
     assert feature_dim(SelectFeatures, lookahead_k=10, params={"features": MINIMAL}) == 4
     assert feature_dim(SelectFeatures, lookahead_k=10, params={"features": KINEMATIC}) == 8
     # lookahead width scales with lookahead_k

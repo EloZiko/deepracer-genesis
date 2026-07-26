@@ -15,8 +15,8 @@ physical DeepRacer or any ONNX runtime. The exporter is
 ```python
 from deepracer_genesis.deploy.onnx import export_policy
 
-# by registered experiment name (uses run_dir/best.pt):
-export_policy("feature_baseline")
+# pass your Experiment subclass (uses run_dir/best.pt):
+export_policy(FeatureBaseline)
 
 # or an explicit chain + checkpoint:
 export_policy(
