@@ -103,10 +103,13 @@ class PPOLagrangian(PPO):
         return loss + torch.nn.functional.smooth_l1_loss(
             cost_pred, batch["cost_value_target"])
 
-    def _clip_gradients(self) -> None:
-        super()._clip_gradients()
-        torch.nn.utils.clip_grad_norm_(self.cost_critic.parameters(),
-                                       self.ppo_cfg["max_grad_norm"])
+    def _clip_gradients(self) -> torch.Tensor:
+        """Clip both parameter groups; return the max pre-clip norm so a
+        non-finite overflow in EITHER group skips the optimizer step."""
+        actor_norm = super()._clip_gradients()
+        cost_norm = torch.nn.utils.clip_grad_norm_(
+            self.cost_critic.parameters(), self.ppo_cfg["max_grad_norm"])
+        return torch.maximum(actor_norm, cost_norm)
 
     def train_on_batch(self, data: "TensorDictBase") -> dict[str, float]:
         logs = super().train_on_batch(data)

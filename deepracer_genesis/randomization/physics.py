@@ -1,8 +1,15 @@
 """Per-env physics domain randomization: friction, mass, COM, gains, armature.
 
-Applied at episode reset via `envs_idx`; requires batched dofs/links info.
-The definition lives here (Part L); the env's ``reset_idx`` is the application
-site that calls :func:`randomize_physics`.
+``randomize_physics`` runs per episode reset (friction / mass / COM / controller
+gains — officially-supported genesis runtime setters); ``randomize_armature``
+runs once per run (``set_dofs_armature`` hides a full mass-matrix recompute per
+call, so re-doing it every reset is wasteful). The definition lives here
+(Part L); the env's ``reset_idx`` / ``__init__`` are the application sites.
+
+Requires genesis>=1.2.3 (quadrants 1.1.1): quadrants 1.0.2's GPU allocator had
+memory-safety bugs (chunk-tail overrun, use-after-erase, DLPack offset
+truncation) that corrupted state under the dense alloc/free churn of DR at
+reset — the cause of the sporadic CUDA_ERROR_ILLEGAL_ADDRESS and NaN'd physics.
 """
 
 import torch
@@ -13,75 +20,59 @@ def _u(lo, hi, shape, device):
     return lo + (hi - lo) * torch.rand(shape, device=device)
 
 
-def _qd_sync():
-    """Drain Genesis's `quadrants` default stream (torch's sync doesn't)."""
-    import quadrants as qd
-    qd.sync()
-
-
 def randomize_physics(env, env_ids):
-    """Draw fresh per-env physics for `env_ids` at reset.
-
-    Each genesis write consumes its value tensor — AND genesis-internal index
-    masks it allocates on torch's stream — ASYNCHRONOUSLY on genesis's own CUDA
-    stream. torch's caching allocator is unaware of genesis's stream, so without
-    a fence the next write's allocation recycles a buffer a genesis kernel is
-    still reading -> sporadic ``CUDA_ERROR_ILLEGAL_ADDRESS`` (surfaces under the
-    TorchRL collector's allocations or the interactive viewer; hidden under
-    ``CUDA_LAUNCH_BLOCKING=1``). We therefore ``synchronize`` right after each
-    write, before any torch allocation can recycle memory still in flight.
-    """
+    """Draw fresh per-env friction / mass / COM / controller gains for `env_ids`."""
     cfg = env.cfg["rand"]
     n = len(env_ids)
     car = env.car
     dev = env.device
-    cuda = dev.type == "cuda"
     links_idx = torch.arange(car.n_links, device=dev)
     car_cfg = env.cfg["car"]
 
-    def write(fn, tensor, dofs_idx):
-        """Fence both streams, THEN apply one genesis DR write.
-
-        The draw is filled by a ``torch.rand`` kernel on torch's stream; genesis
-        reads ``tensor`` (and allocates internal index masks) on the quadrants
-        stream. torch's device sync drains the fill + prior torch work;
-        ``qd.sync()`` drains the prior genesis kernel on the quadrants stream
-        (which torch's sync does NOT cover) so its buffers aren't recycled while
-        still in flight -> the cross-stream illegal-access race.
-        """
-        if cuda:
-            torch.cuda.synchronize()
-            _qd_sync()
-        fn(tensor, dofs_idx, envs_idx=env_ids)
-
     # ---- links: friction, mass, center of mass ----
     lo, hi = cfg["friction_range"]
-    write(car.set_friction_ratio, _u(lo, hi, (n, car.n_links), dev), links_idx)
+    car.set_friction_ratio(_u(lo, hi, (n, car.n_links), dev), links_idx, envs_idx=env_ids)
+
     m = cfg.get("mass_shift_kg", 0.0)
     if m > 0:
         # genesis adds the shift to each link's rest mass UNCLAMPED, and several
-        # links weigh far less than the configured range (0.1 kg steering
-        # hinges, <=1e-3 kg camera links vs the 0.2 kg default) — an unscaled
-        # draw makes their effective mass negative nearly every reset. Scale
-        # each link's span to at most 90% of its rest mass, symmetrically.
+        # links weigh far less than the configured range (0.1 kg steering hinges,
+        # <=1e-3 kg camera links vs the 0.2 kg default) — an unscaled draw makes
+        # their effective mass negative nearly every reset (negative mass
+        # accelerates against force -> runaway velocities -> NaN). Scale each
+        # link's span to at most 90% of its rest mass, symmetrically.
         rest = getattr(env, "_link_rest_mass", None)
         if rest is None:
-            rest = car.get_links_inertial_mass().to(dev).reshape(1, car.n_links)
+            # batched dofs/links info returns (n_envs, n_links); unbatched
+            # (n_links,). Rest masses are identical across envs -> row 0.
+            rest = (car.get_links_inertial_mass().to(dev)
+                    .reshape(-1, car.n_links)[:1])
             env._link_rest_mass = rest
         span = torch.clamp(0.9 * rest, max=m)
-        write(car.set_mass_shift, _u(-1.0, 1.0, (n, car.n_links), dev) * span,
-              links_idx)
+        car.set_mass_shift(_u(-1.0, 1.0, (n, car.n_links), dev) * span,
+                           links_idx, envs_idx=env_ids)
+
     c = cfg.get("com_shift_m", 0.0)
     if c > 0:
-        write(car.set_COM_shift, _u(-c, c, (n, car.n_links, 3), dev), links_idx)
+        car.set_COM_shift(_u(-c, c, (n, car.n_links, 3), dev), links_idx, envs_idx=env_ids)
 
-    # ---- dofs: controller gains + motor armature (per env, batched) ----
+    # ---- dofs: controller gains (per env, batched) ----
     lo, hi = cfg["steer_kp_scale"]
-    write(car.set_dofs_kp, car_cfg["steer_kp"] * _u(lo, hi, (n, 2), dev), env.steer_dofs)
-    write(car.set_dofs_kv, car_cfg["steer_kv"] * _u(lo, hi, (n, 2), dev), env.steer_dofs)
+    car.set_dofs_kp(car_cfg["steer_kp"] * _u(lo, hi, (n, 2), dev), env.steer_dofs, envs_idx=env_ids)
+    car.set_dofs_kv(car_cfg["steer_kv"] * _u(lo, hi, (n, 2), dev), env.steer_dofs, envs_idx=env_ids)
     lo, hi = cfg["wheel_kv_scale"]
-    write(car.set_dofs_kv, car_cfg["wheel_kv"] * _u(lo, hi, (n, 4), dev), env.wheel_dofs)
-    lo, hi = cfg.get("armature_range", (0.0, 0.0))
+    car.set_dofs_kv(car_cfg["wheel_kv"] * _u(lo, hi, (n, 4), dev), env.wheel_dofs, envs_idx=env_ids)
+
+
+def randomize_armature(env, env_ids):
+    """Per-RUN motor-armature DR (applied once at build, not every reset).
+
+    ``set_dofs_armature`` triggers a full mass-matrix recompute per call, so it
+    is applied once for the whole run rather than at every episode reset.
+    """
+    lo, hi = env.cfg["rand"].get("armature_range", (0.0, 0.0))
     if hi > 0:
-        write(car.set_dofs_armature, _u(lo, hi, (n, 6), dev),
-              env.wheel_dofs + env.steer_dofs)
+        n = len(env_ids)
+        env.car.set_dofs_armature(
+            _u(lo, hi, (n, 6), env.device),
+            env.wheel_dofs + env.steer_dofs, envs_idx=env_ids)

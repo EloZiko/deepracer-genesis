@@ -57,9 +57,16 @@ class PPO:
         return (loss_td["loss_objective"] + loss_td["loss_critic"]
                 + loss_td["loss_entropy"])
 
-    def _clip_gradients(self) -> None:
-        torch.nn.utils.clip_grad_norm_(self.loss_module.parameters(),
-                                       self.ppo_cfg["max_grad_norm"])
+    def _clip_gradients(self) -> torch.Tensor:
+        """Clip gradients and return the pre-clip total norm.
+
+        Returns:
+            The total gradient norm BEFORE clipping. A non-finite norm means
+            the backward pass overflowed (clip would then scale every gradient
+            to NaN) — the caller must skip the optimizer step.
+        """
+        return torch.nn.utils.clip_grad_norm_(self.loss_module.parameters(),
+                                              self.ppo_cfg["max_grad_norm"])
 
     # -- protocol -------------------------------------------------------
     def train_on_batch(self, data: "TensorDictBase") -> dict[str, float]:
@@ -74,8 +81,23 @@ class PPO:
             self.buffer.extend(slim.reshape(-1))
             for batch in self.buffer:
                 loss = self._minibatch_loss(batch)
+                # One poisoned minibatch (non-finite obs/reward from a physics
+                # blow-up) would write NaN into every weight via backward+step
+                # and permanently brick the policy — drop the update instead.
+                if not torch.isfinite(loss):
+                    self._nonfinite_skips = getattr(self, "_nonfinite_skips", 0) + 1
+                    self.optim.zero_grad()
+                    continue
                 loss.backward()
-                self._clip_gradients()
+                grad_norm = self._clip_gradients()
+                # A finite loss can still overflow in backward (huge-but-finite
+                # inputs square to inf); clip then scales every gradient by
+                # NaN. Verified empirically: the loss check alone did not save
+                # the weights — the norm check is the one that matters.
+                if not torch.isfinite(grad_norm):
+                    self._nonfinite_skips = getattr(self, "_nonfinite_skips", 0) + 1
+                    self.optim.zero_grad()
+                    continue
                 self.optim.step()
                 self.optim.zero_grad()
 
@@ -84,6 +106,9 @@ class PPO:
                   "clip_fraction", "kl_approx"):
             if k in self._last_loss_td.keys():
                 logs[f"Loss/{k}"] = float(self._last_loss_td[k].detach())
+        skips = getattr(self, "_nonfinite_skips", 0)
+        if skips:
+            logs["Loss/nonfinite_minibatches_skipped"] = float(skips)
         return logs
 
     def observe_env_logs(self, logs: dict[str, Any]) -> None:

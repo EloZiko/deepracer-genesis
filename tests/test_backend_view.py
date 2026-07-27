@@ -52,15 +52,13 @@ def test_gui_large_batch_warns_but_builds():
         assert not any("interactive window" in str(x.message) for x in w)
 
 
-def test_gui_plus_gpu_dr_rejected_cpu_ok():
-    """view='gui' + physics DR is a build error on GPU (stream race), OK on CPU."""
+def test_gui_plus_gpu_dr_builds_on_both_backends():
+    """view='gui' + physics DR builds on GPU and CPU: the old crash was a
+    quadrants 1.0.2 allocator bug, fixed in genesis>=1.2.3 — no guard needed."""
     from deepracer_genesis.experiment import DomainRandomizationPhysics
 
-    def build(backend):
-        return (FeatureEnvironment(num_envs=16, view="gui", backend=backend)
+    for backend in ("gpu", "cpu"):
+        spec = (FeatureEnvironment(num_envs=16, view="gui", backend=backend)
                 >> DomainRandomizationPhysics()
                 >> VectorPolicy(keys=("state",))).build()
-
-    with pytest.raises(SpecError, match="currently crashes in"):
-        build("gpu")
-    build("cpu")   # CPU is immune (no CUDA streams) -> builds fine
+        assert spec.env.view == "gui" and spec.env.backend == backend

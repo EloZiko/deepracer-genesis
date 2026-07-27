@@ -1,0 +1,211 @@
+{
+  "spec_id": "1f4272cafe1b",
+  "spec": {
+    "env": {
+      "modality": "feature",
+      "render": "none",
+      "backend": "gpu",
+      "view": "gui",
+      "resolution": [
+        160,
+        120
+      ],
+      "fov": 90.0,
+      "lookahead_k": 10,
+      "feature_set": null,
+      "feature_params": {},
+      "tracks": [
+        "reinvent_base"
+      ],
+      "num_envs": 16,
+      "random_start": true,
+      "random_direction": false,
+      "reward": null,
+      "reward_scales": {},
+      "emits_cost": false,
+      "cost_fn": null,
+      "cost_budget": null
+    },
+    "obs_dr": {
+      "image_aug": {},
+      "camera_jitter": {},
+      "physics": {
+        "friction_range": [
+          0.6,
+          1.4
+        ],
+        "mass_shift_kg": 0.2,
+        "com_shift_m": 0.01,
+        "steer_kp_scale": [
+          0.8,
+          1.2
+        ],
+        "wheel_kv_scale": [
+          0.8,
+          1.2
+        ],
+        "armature_range": [
+          0.0,
+          0.01
+        ]
+      },
+      "appearance": {}
+    },
+    "encoder": {
+      "kind": "none",
+      "checkpoint": null,
+      "output_dim": null,
+      "layer": null,
+      "out_key": "encoded"
+    },
+    "policy": {
+      "actor_keys": [
+        "state"
+      ],
+      "critic_keys": [
+        "state"
+      ],
+      "cnn": null,
+      "mlp": {
+        "hidden": [
+          256,
+          128,
+          64
+        ],
+        "activation": "elu"
+      },
+      "actions": null
+    },
+    "action_dr": {
+      "steer_noise": 0.0,
+      "speed_noise": 0.0,
+      "delay_steps": 0
+    },
+    "algorithm": {
+      "cls": null,
+      "ppo": {
+        "clip": 0.2,
+        "epochs": 5,
+        "minibatches": 4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "lr": 0.0003,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0,
+        "horizon": 24
+      },
+      "lagrangian": {},
+      "params": {}
+    },
+    "eval": {
+      "real_tracks": [
+        "reinvent_base",
+        "Oval_track"
+      ],
+      "eval_num_envs": 32,
+      "eval_episodes": null,
+      "charts": true
+    },
+    "total_env_steps": 3000001,
+    "eval_every_steps": 500000,
+    "seed": 0,
+    "ablation_group": "examples",
+    "variant": "repro_crash"
+  },
+  "seed": 0,
+  "ablation_group": "examples",
+  "variant": "repro_crash",
+  "metrics": {
+    "episodes": 507,
+    "mean_return": -2.395951747894287,
+    "mean_progress_m": 0.6782565712928772,
+    "mean_episode_s": 1.1167652606964111,
+    "completion_rate": 0.0,
+    "mean_laps": 0.03829976171255112,
+    "offtrack_rate": 1.0,
+    "lap_time_s": NaN,
+    "mean_speed_mps": 0.5199862718582153
+  },
+  "train": {
+    "wall_clock_s": 4561.3,
+    "steps_per_s": 657.8,
+    "total_env_steps": 3000192,
+    "checkpoint": "runs/examples/repro_crash-0-1f4272cafe1b/best.pt"
+  },
+  "eval_history": [
+    {
+      "frames": 500352,
+      "episodes": 84,
+      "mean_return": 159.8048858642578,
+      "mean_progress_m": 15.97323226928711,
+      "mean_episode_s": 5.940000057220459,
+      "completion_rate": 0.3095238208770752,
+      "mean_laps": 0.9019757509231567,
+      "offtrack_rate": 1.0,
+      "lap_time_s": 6.206630706787109,
+      "mean_speed_mps": 2.452275514602661
+    },
+    {
+      "frames": 1000320,
+      "episodes": 25,
+      "mean_return": 557.396240234375,
+      "mean_progress_m": 53.241912841796875,
+      "mean_episode_s": 18.51919937133789,
+      "completion_rate": 0.6800000071525574,
+      "mean_laps": 3.0064616203308105,
+      "offtrack_rate": 0.47999998927116394,
+      "lap_time_s": 6.128868579864502,
+      "mean_speed_mps": 2.4877662658691406
+    },
+    {
+      "frames": 1500288,
+      "episodes": 16,
+      "mean_return": 917.7890014648438,
+      "mean_progress_m": 86.7442626953125,
+      "mean_episode_s": 30.0,
+      "completion_rate": 1.0,
+      "mean_laps": 4.898270606994629,
+      "offtrack_rate": 0.0,
+      "lap_time_s": 6.135109901428223,
+      "mean_speed_mps": 2.8914754390716553
+    },
+    {
+      "frames": 2000256,
+      "episodes": 50,
+      "mean_return": 248.42010498046875,
+      "mean_progress_m": 24.31307029724121,
+      "mean_episode_s": 8.835999488830566,
+      "completion_rate": 0.5,
+      "mean_laps": 1.3729091882705688,
+      "offtrack_rate": 0.9599999785423279,
+      "lap_time_s": 6.265954971313477,
+      "mean_speed_mps": 2.280062437057495
+    },
+    {
+      "frames": 2500224,
+      "episodes": 35,
+      "mean_return": 334.8475341796875,
+      "mean_progress_m": 32.3318977355957,
+      "mean_episode_s": 11.882286071777344,
+      "completion_rate": 0.4571428596973419,
+      "mean_laps": 1.8257161378860474,
+      "offtrack_rate": 0.8285714387893677,
+      "lap_time_s": 6.339022159576416,
+      "mean_speed_mps": 2.3952784538269043
+    },
+    {
+      "frames": 3000192,
+      "episodes": 523,
+      "mean_return": -2.840663433074951,
+      "mean_progress_m": 0.6390823721885681,
+      "mean_episode_s": 1.0868068933486938,
+      "completion_rate": 0.0,
+      "mean_laps": 0.03608766943216324,
+      "offtrack_rate": 1.0,
+      "lap_time_s": NaN,
+      "mean_speed_mps": 0.5140707492828369
+    }
+  ],
+  "holdout": {},
+  "created_at": "2026-07-27T11:05:53"
+}

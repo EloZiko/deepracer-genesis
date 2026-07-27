@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import torch
+
 from . import rules
 
 if TYPE_CHECKING:
@@ -75,3 +77,50 @@ def check_termination(env: "DeepRacerEnv") -> None:
         env.reset_buf = off | flipped | env.time_out_buf
         # terminal penalty for genuine failures (not timeouts)
         env.rew_buf += (off | flipped).float() * cfg["termination"]["crash_penalty"]
+
+    # A physics blow-up yields NaN/Inf (or absurdly large) state. NaN
+    # comparisons are all False, so such an env passes every predicate above
+    # and would poison training data until its timeout — terminate it now (its
+    # reward too, so nothing non-finite reaches the learner) and let reset_idx
+    # respawn it clean. Huge-but-finite states are included: they overflow to
+    # inf in the loss backward pass before any NaN ever appears.
+    broken = (~torch.isfinite(env.state_buf).all(dim=-1)
+              | (env.state_buf.abs() > 1e6).any(dim=-1))
+    if broken.any():
+        env.reset_buf |= broken
+        env.rew_buf = torch.where(broken, torch.zeros_like(env.rew_buf), env.rew_buf)
+        first = not hasattr(env, "_nonfinite_resets")
+        env._nonfinite_resets = getattr(env, "_nonfinite_resets", 0) + int(broken.sum())
+        env._nonfinite_fires = getattr(env, "_nonfinite_fires", 0) + 1
+        if first or env._nonfinite_fires % 200 == 0:
+            print(f"[mdp] non-finite/huge state in {int(broken.sum())} env(s) -> "
+                  f"forced reset (total {env._nonfinite_resets}, "
+                  f"fires {env._nonfinite_fires})", flush=True)
+        if first:
+            _dump_body_fields(env)
+
+
+def _dump_body_fields(env: "DeepRacerEnv") -> None:
+    """One-shot diagnostic on the first blow-up: report whether PERSISTENT body
+    fields (which no reset ever rewrites) have been corrupted in place — the
+    signature of the quadrants 1.0.2 allocator/zerocopy memory-safety bugs.
+    """
+    e = env.car.entity
+    probes = {
+        "dofs_kp": lambda: e.get_dofs_kp(),
+        "dofs_kv": lambda: e.get_dofs_kv(),
+        "links_inertial_mass": lambda: e.get_links_inertial_mass(),
+        "dofs_armature": lambda: e.get_dofs_armature(),
+        "qpos": lambda: e.get_qpos(),
+        "dofs_velocity": lambda: e.get_dofs_velocity(),
+    }
+    for name, fn in probes.items():
+        try:
+            t = torch.as_tensor(fn())
+            n_bad = int((~torch.isfinite(t)).sum())
+            big = float(t.abs().max())
+            print(f"[mdp:first-blowup] {name}: "
+                  f"{'CORRUPTED' if n_bad or big > 1e8 else 'ok'} "
+                  f"(non-finite {n_bad}, max|x| {big:.3g})", flush=True)
+        except Exception as exc:  # diagnostic only — never break the step
+            print(f"[mdp:first-blowup] {name}: probe failed ({exc})", flush=True)

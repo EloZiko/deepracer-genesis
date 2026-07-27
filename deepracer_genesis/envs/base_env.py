@@ -15,13 +15,7 @@ import genesis as gs
 from . import mdp, rules
 from .scene import build_scene
 from .track import MultiTrack
-from ..randomization.physics import randomize_physics
-
-
-def _qd_sync():
-    """Drain Genesis's `quadrants` default CUDA stream (torch's sync doesn't)."""
-    import quadrants as qd
-    qd.sync()
+from ..randomization.physics import randomize_armature, randomize_physics
 
 
 class DeepRacerEnv:
@@ -268,18 +262,18 @@ class DeepRacerEnv:
         self.episode_sums = {k: torch.zeros(N, device=self.device) for k in self.reward_scales}
 
         self.reset_idx(torch.arange(N, device=self.device))
-        # Physics DR is a BODY property, not an episode property: per Genesis DR
-        # best practices ("apply physics randomization once, after build(); ...
-        # resetting them every step can destabilize the solver"), it is applied
-        # ONCE here, to all envs, rather than re-written every reset. Each env
-        # keeps its own randomized friction/mass/COM/gains/armature for the run;
-        # only spawn/direction (state) randomization happens per reset. This
-        # also removes the per-reset torch->genesis cross-stream writes that
-        # raced on the GPU backend.
+        # Physics DR applied ONCE per run (static per-env bodies), not per reset.
+        # EMPIRICAL: on genesis 1.2.3 + quadrants 1.1.1, per-episode physics DR
+        # still sporadically crashes with CUDA_ERROR_ILLEGAL_ADDRESS (2/3 GPU
+        # runs died at iter 21 / iter 571), whereas static (build-time) DR runs
+        # clean past the danger zone — so DR is applied here, once. Each env
+        # keeps its own randomized friction/mass/COM/gains/armature + camera
+        # mount for the run; only spawn/direction (state) randomizes per reset.
         if self.cfg["rand"]["randomize"]:
             all_ids = torch.arange(N, device=self.device)
             randomize_physics(self, all_ids)
-            self.renderer.randomize_mount(self, all_ids)   # camera mount = calibration
+            randomize_armature(self, all_ids)
+            self.renderer.randomize_mount(self, all_ids)
         self._post_physics()
 
     # ------------------------------------------------------------------- step
@@ -334,17 +328,10 @@ class DeepRacerEnv:
 
         self.last_actions[:] = self.actions
         self.extras["time_outs"] = self.time_out_buf
-        # Fence the genesis<->torch stream boundary once per control step.
-        # Genesis's `quadrants` kernels run on their OWN CUDA stream and consume
-        # torch tensors (controls, reset poses, DR draws); torch's stream-ordered
-        # allocator may recycle those while a quadrants kernel is still in flight
-        # -> sporadic CUDA_ERROR_ILLEGAL_ADDRESS in long runs. torch.cuda.
-        # synchronize() drains torch's streams but NOT quadrants' -> qd.sync()
-        # is required to actually drain genesis (verified: torch-sync-only still
-        # crashes; adding qd.sync() removes it).
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
-            _qd_sync()
+        # No genesis<->torch stream fence needed: quadrants and torch both run on
+        # the legacy NULL stream (stream 0), so allocator reuse is stream-ordered
+        # by construction. The sporadic illegal-access came from quadrants 1.0.2
+        # allocator bugs, fixed in >=1.2.3 — not a cross-stream race.
         return self.get_observations(), self.rew_buf, self.reset_buf, self.extras
 
     # ---------------------------------------------------------- post-physics
@@ -430,12 +417,9 @@ class DeepRacerEnv:
         qpos[:, 3] = torch.cos(yaw / 2)
         qpos[:, 6] = torch.sin(yaw / 2)
         self.car.reset_pose(qpos, env_ids)
-        # NOTE: physics DR (friction/mass/COM/gains/armature) and camera-mount
-        # DR are applied ONCE at build (see __init__), not per reset — physics
-        # is a body property, and per-reset genesis writes here would both
-        # destabilize the solver (Genesis DR guidance) and race torch<->genesis
-        # CUDA streams. World-color DR above is torch-only, so it stays per
-        # reset. Only state (spawn pose / direction) randomizes per episode.
+        # NOTE: physics DR is applied once at build (see __init__), not per reset
+        # — per-episode physics setters sporadically crash even on genesis 1.2.3.
+        # World-color DR above is torch-only, so it stays per reset.
 
         # episode logging
         self.extras["log"] = {}
