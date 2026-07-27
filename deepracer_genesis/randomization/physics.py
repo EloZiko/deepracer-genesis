@@ -59,7 +59,18 @@ def randomize_physics(env, env_ids):
     write(car.set_friction_ratio, _u(lo, hi, (n, car.n_links), dev), links_idx)
     m = cfg.get("mass_shift_kg", 0.0)
     if m > 0:
-        write(car.set_mass_shift, _u(-m, m, (n, car.n_links), dev), links_idx)
+        # genesis adds the shift to each link's rest mass UNCLAMPED, and several
+        # links weigh far less than the configured range (0.1 kg steering
+        # hinges, <=1e-3 kg camera links vs the 0.2 kg default) — an unscaled
+        # draw makes their effective mass negative nearly every reset. Scale
+        # each link's span to at most 90% of its rest mass, symmetrically.
+        rest = getattr(env, "_link_rest_mass", None)
+        if rest is None:
+            rest = car.get_links_inertial_mass().to(dev).reshape(1, car.n_links)
+            env._link_rest_mass = rest
+        span = torch.clamp(0.9 * rest, max=m)
+        write(car.set_mass_shift, _u(-1.0, 1.0, (n, car.n_links), dev) * span,
+              links_idx)
     c = cfg.get("com_shift_m", 0.0)
     if c > 0:
         write(car.set_COM_shift, _u(-c, c, (n, car.n_links, 3), dev), links_idx)

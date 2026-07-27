@@ -268,6 +268,18 @@ class DeepRacerEnv:
         self.episode_sums = {k: torch.zeros(N, device=self.device) for k in self.reward_scales}
 
         self.reset_idx(torch.arange(N, device=self.device))
+        # Physics DR is a BODY property, not an episode property: per Genesis DR
+        # best practices ("apply physics randomization once, after build(); ...
+        # resetting them every step can destabilize the solver"), it is applied
+        # ONCE here, to all envs, rather than re-written every reset. Each env
+        # keeps its own randomized friction/mass/COM/gains/armature for the run;
+        # only spawn/direction (state) randomization happens per reset. This
+        # also removes the per-reset torch->genesis cross-stream writes that
+        # raced on the GPU backend.
+        if self.cfg["rand"]["randomize"]:
+            all_ids = torch.arange(N, device=self.device)
+            randomize_physics(self, all_ids)
+            self.renderer.randomize_mount(self, all_ids)   # camera mount = calibration
         self._post_physics()
 
     # ------------------------------------------------------------------- step
@@ -418,22 +430,12 @@ class DeepRacerEnv:
         qpos[:, 3] = torch.cos(yaw / 2)
         qpos[:, 6] = torch.sin(yaw / 2)
         self.car.reset_pose(qpos, env_ids)
-
-        if self.cfg["rand"]["randomize"]:
-            # Genesis reads torch-filled tensors (DR draws, index masks) on its
-            # OWN CUDA stream without waiting for torch's fill kernel, and torch's
-            # caching allocator doesn't track genesis's stream -> a cross-stream
-            # race gives sporadic CUDA_ERROR_ILLEGAL_ADDRESS (surfaces under the
-            # TorchRL collector / interactive viewer; hidden by
-            # CUDA_LAUNCH_BLOCKING=1). randomize_physics fences BEFORE each write
-            # (fill done + prior kernel drained); the trailing fence below drains
-            # the last DR write + camera-mount DR before the episode logging /
-            # _post_physics reallocate. Only the DR path pays this; plain resets
-            # are covered by step()'s end-of-step fence.
-            randomize_physics(self, env_ids)      # self-fences before each write
-            self.renderer.randomize_mount(self, env_ids)   # camera-mount DR (Madrona only)
-            if self.device.type == "cuda":
-                torch.cuda.synchronize()
+        # NOTE: physics DR (friction/mass/COM/gains/armature) and camera-mount
+        # DR are applied ONCE at build (see __init__), not per reset — physics
+        # is a body property, and per-reset genesis writes here would both
+        # destabilize the solver (Genesis DR guidance) and race torch<->genesis
+        # CUDA streams. World-color DR above is torch-only, so it stays per
+        # reset. Only state (spawn pose / direction) randomizes per episode.
 
         # episode logging
         self.extras["log"] = {}
