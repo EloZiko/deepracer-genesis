@@ -1,10 +1,12 @@
 """Per-env physics domain randomization: friction, mass, COM, gains, armature.
 
-``randomize_physics`` runs per episode reset (friction / mass / COM / controller
-gains — officially-supported genesis runtime setters); ``randomize_armature``
-runs once per run (``set_dofs_armature`` hides a full mass-matrix recompute per
-call, so re-doing it every reset is wasteful). The definition lives here
-(Part L); the env's ``reset_idx`` / ``__init__`` are the application sites.
+Both functions are applied ONCE per run (static per-env bodies), from the env's
+``__init__``, not per reset: ``randomize_physics`` sets friction / mass / COM /
+controller gains, ``randomize_armature`` sets the motor armature (a separate
+call because ``set_dofs_armature`` hides a full mass-matrix recompute). Per-reset
+physics setters still sporadically fault even on genesis 1.2.3 (see below), so
+DR bodies are fixed for the run and only spawn/state randomizes per episode.
+The definition lives here (Part L).
 
 Requires genesis>=1.2.3 (quadrants 1.1.1): quadrants 1.0.2's GPU allocator had
 memory-safety bugs (chunk-tail overrun, use-after-erase, DLPack offset

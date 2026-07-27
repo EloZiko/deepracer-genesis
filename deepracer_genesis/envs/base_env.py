@@ -437,10 +437,6 @@ class DeepRacerEnv:
         self.last_actions[env_ids] = 0.0
         self.feature_set.reset(env_ids)   # clear any per-env feature history
         self.progress_m[env_ids] = self.track.localize(pos_xy, envs_idx=env_ids)["progress_m"]
-        # same stream fence as step(): reset poses/DR draws are torch temporaries
-        # consumed by genesis kernels (see step() comment)
-        if self.device.type == "cuda":
-            torch.cuda.synchronize()
 
     # ----------------------------------------------------------- observations
     def get_observations(self) -> TensorDict:
