@@ -18,6 +18,12 @@ from .track import MultiTrack
 from ..randomization.physics import randomize_physics
 
 
+def _qd_sync():
+    """Drain Genesis's `quadrants` default CUDA stream (torch's sync doesn't)."""
+    import quadrants as qd
+    qd.sync()
+
+
 class DeepRacerEnv:
     """Batched DeepRacer sim owning the control/observation loop, and factory
     returning a vision or vector subclass per ``env_cfg["vision"]``.
@@ -316,13 +322,17 @@ class DeepRacerEnv:
 
         self.last_actions[:] = self.actions
         self.extras["time_outs"] = self.time_out_buf
-        # fence the genesis<->torch stream boundary: quadrants kernels run on
-        # their own CUDA stream and consume torch tensors (controls, reset poses,
-        # DR draws) that torch's stream-ordered allocator may otherwise recycle
-        # while still in flight -> sporadic CUDA_ERROR_ILLEGAL_ADDRESS in long
-        # runs. One device sync per control step bounds the race.
+        # Fence the genesis<->torch stream boundary once per control step.
+        # Genesis's `quadrants` kernels run on their OWN CUDA stream and consume
+        # torch tensors (controls, reset poses, DR draws); torch's stream-ordered
+        # allocator may recycle those while a quadrants kernel is still in flight
+        # -> sporadic CUDA_ERROR_ILLEGAL_ADDRESS in long runs. torch.cuda.
+        # synchronize() drains torch's streams but NOT quadrants' -> qd.sync()
+        # is required to actually drain genesis (verified: torch-sync-only still
+        # crashes; adding qd.sync() removes it).
         if self.device.type == "cuda":
             torch.cuda.synchronize()
+            _qd_sync()
         return self.get_observations(), self.rew_buf, self.reset_buf, self.extras
 
     # ---------------------------------------------------------- post-physics
@@ -357,14 +367,17 @@ class DeepRacerEnv:
         rev = (self.dir_sign < 0).float()
         self.heading_err = rules.wrap(self.yaw - loc["track_yaw"] - rev * math.pi)
         new_progress = loc["progress_m"]
-        d = new_progress - self.progress_m
-        L = self.track.total_len_env
-        wrapped = torch.where(d > 0.5 * L, d - L, torch.where(d < -0.5 * L, d + L, d))
-        self.d_progress = wrapped * self.dir_sign
+        # signed per-step progress: lap-wrapped, direction-oriented, and clamped
+        # to the physical per-step bound (kills spurious progress from localize
+        # nearest-waypoint jumps at track pinches — see rules.lap_progress).
+        max_step = 1.5 * self.cfg["action"]["max_speed"] * self.dt
+        self.d_progress, crossed = rules.lap_progress(
+            self.progress_m, new_progress, self.track.total_len_env,
+            self.dir_sign, max_step)
         if env_ids is not None and len(env_ids) > 0:
             self.d_progress[env_ids] = 0.0
         # wrap through the finish line while moving forward = one lap completed
-        self.laps += ((d.abs() > 0.5 * L) & (self.d_progress > 0)).float()
+        self.laps += (crossed & (self.d_progress > 0)).float()
         self.progress_m = new_progress
 
         # ---- state obs (assembled by the selected feature set) ----

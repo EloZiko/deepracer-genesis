@@ -13,6 +13,12 @@ def _u(lo, hi, shape, device):
     return lo + (hi - lo) * torch.rand(shape, device=device)
 
 
+def _qd_sync():
+    """Drain Genesis's `quadrants` default stream (torch's sync doesn't)."""
+    import quadrants as qd
+    qd.sync()
+
+
 def randomize_physics(env, env_ids):
     """Draw fresh per-env physics for `env_ids` at reset.
 
@@ -34,15 +40,18 @@ def randomize_physics(env, env_ids):
     car_cfg = env.cfg["car"]
 
     def write(fn, tensor, dofs_idx):
-        """Fence the torch fill, THEN apply one genesis DR write.
+        """Fence both streams, THEN apply one genesis DR write.
 
         The draw is filled by a ``torch.rand`` kernel on torch's stream; genesis
-        reads ``tensor`` on its OWN stream without waiting for that fill, so a
-        device sync must land between the fill and the genesis read (it also
-        waits out the previous write's kernel + its internal index masks).
+        reads ``tensor`` (and allocates internal index masks) on the quadrants
+        stream. torch's device sync drains the fill + prior torch work;
+        ``qd.sync()`` drains the prior genesis kernel on the quadrants stream
+        (which torch's sync does NOT cover) so its buffers aren't recycled while
+        still in flight -> the cross-stream illegal-access race.
         """
         if cuda:
             torch.cuda.synchronize()
+            _qd_sync()
         fn(tensor, dofs_idx, envs_idx=env_ids)
 
     # ---- links: friction, mass, center of mass ----

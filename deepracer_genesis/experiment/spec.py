@@ -332,15 +332,16 @@ class ExperimentSpec:
                 "view='gui' opens an interactive window and is a debug/watch path; "
                 "num_envs=%d is large for it — consider a small batch" % env.num_envs,
                 stacklevel=2)
-        # The GUI viewer + physics DR on the GPU backend can hit a Genesis<->torch
-        # cross-stream memory race (viewer GL/CUDA work racing the DR writes).
-        # CPU has no CUDA streams, so it is immune — recommend it for watching.
-        if (env.view == "gui" and env.backend == "gpu" and self.obs_dr.physics):
-            warnings.warn(
-                "view='gui' + physics DR on backend='gpu' can hit a Genesis/torch "
-                "CUDA stream race; use backend='cpu' for interactive watching "
-                "(no CUDA => no race), or drop the viewer for DR training.",
-                stacklevel=2)
+        # Empirical guard: view='gui' + physics DR on the GPU backend currently
+        # crashes in this build with a CUDA illegal memory access (root cause
+        # under investigation — a GPU-side instability; CPU is unaffected).
+        # Fail fast with the known-good path rather than crash mid-training.
+        if env.view == "gui" and env.backend == "gpu" and self.obs_dr.physics:
+            raise SpecError(
+                "view='gui' + physics DR on backend='gpu' currently crashes in "
+                "this build (a GPU-side instability, under investigation; CPU is "
+                "unaffected). Use backend='cpu' for the interactive viewer, or "
+                "drop the viewer for GPU DR training.")
 
     def _validate_key_routing(self) -> None:
         """Check actor/critic obs keys, discrete actions, and camera routing.

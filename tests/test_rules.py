@@ -99,3 +99,42 @@ def test_flipped_default_threshold_matches_env():
     # the env historically used up_z < 0.3
     assert is_flipped(torch.tensor([0.29])).item() is True
     assert is_flipped(torch.tensor([0.31])).item() is False
+
+
+# ------------------------------------------------------------- lap_progress
+def test_lap_progress_normal_step():
+    from deepracer_genesis.envs.rules import lap_progress
+    L = torch.tensor([20.0, 20.0])
+    dp, crossed = lap_progress(torch.tensor([5.0, 5.0]), torch.tensor([5.05, 4.95]),
+                               L, torch.tensor([1.0, 1.0]), max_step=0.12)
+    assert torch.allclose(dp, torch.tensor([0.05, -0.05]), atol=1e-6)
+    assert crossed.tolist() == [False, False]
+
+
+def test_lap_progress_wraps_finish_line():
+    from deepracer_genesis.envs.rules import lap_progress
+    L = torch.tensor([20.0])
+    # crossed finish: 19.98 -> 0.02 is a +0.04 real step, not a -19.96 jump
+    dp, crossed = lap_progress(torch.tensor([19.98]), torch.tensor([0.02]),
+                               L, torch.tensor([1.0]), max_step=0.12)
+    assert torch.allclose(dp, torch.tensor([0.04]), atol=1e-6)
+    assert crossed.item() is True
+
+
+def test_lap_progress_clamps_spurious_pinch_jump():
+    """A multi-metre localize jump (below 0.5*L) is clamped to the bound."""
+    from deepracer_genesis.envs.rules import lap_progress
+    L = torch.tensor([20.0])
+    dp, crossed = lap_progress(torch.tensor([5.0]), torch.tensor([7.7]),  # +2.7 m jump
+                               L, torch.tensor([1.0]), max_step=0.12)
+    assert abs(dp.item() - 0.12) < 1e-6    # clamped to the bound, not 2.7
+    assert crossed.item() is False         # 2.7 < 0.5*L, so not a lap
+
+
+def test_lap_progress_reversed_direction():
+    from deepracer_genesis.envs.rules import lap_progress
+    L = torch.tensor([20.0])
+    # reversed car: arclength DEcreases, but that is forward progress for it
+    dp, _ = lap_progress(torch.tensor([5.0]), torch.tensor([4.95]),
+                         L, torch.tensor([-1.0]), max_step=0.12)
+    assert torch.allclose(dp, torch.tensor([0.05]), atol=1e-6)   # positive progress

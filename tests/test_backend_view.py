@@ -52,17 +52,15 @@ def test_gui_large_batch_warns_but_builds():
         assert not any("interactive window" in str(x.message) for x in w)
 
 
-def test_gui_plus_gpu_dr_warns_cpu_immune():
-    """view='gui' + physics DR on GPU warns (stream race); CPU does not."""
+def test_gui_plus_gpu_dr_rejected_cpu_ok():
+    """view='gui' + physics DR is a build error on GPU (stream race), OK on CPU."""
     from deepracer_genesis.experiment import DomainRandomizationPhysics
 
-    def dr_gui(backend):
-        with warnings.catch_warnings(record=True) as w:
-            warnings.simplefilter("always")
-            (FeatureEnvironment(num_envs=16, view="gui", backend=backend)
-             >> DomainRandomizationPhysics()
-             >> VectorPolicy(keys=("state",))).build()
-            return any("CUDA stream race" in str(x.message) for x in w)
+    def build(backend):
+        return (FeatureEnvironment(num_envs=16, view="gui", backend=backend)
+                >> DomainRandomizationPhysics()
+                >> VectorPolicy(keys=("state",))).build()
 
-    assert dr_gui("gpu") is True
-    assert dr_gui("cpu") is False
+    with pytest.raises(SpecError, match="currently crashes in"):
+        build("gpu")
+    build("cpu")   # CPU is immune (no CUDA streams) -> builds fine

@@ -26,7 +26,7 @@ class WatchLive(Experiment):
 
     num_envs = 16
     seed = 0
-    total_env_steps = 2_000_000
+    total_env_steps = 3_000_000
     eval_every_steps = 500_000
     ablation_group = "examples"
     variant = "watch_live"
@@ -34,7 +34,7 @@ class WatchLive(Experiment):
     def pipeline(self):
         return (
             FeatureEnvironment(num_envs=self.num_envs,
-                               backend="cpu", view="gui")   # CPU + viewer (Part M)
+                               backend="gpu", view="gui")   # GPU + viewer (Part M)
             >> DomainRandomizationPhysics()
             >> VectorPolicy(keys=("state",))
             >> Evaluation(real_tracks=("reinvent_base", "Oval_track"),
