@@ -25,6 +25,11 @@ MODES = {
     "physics": dict(vision=False, policy=False),
     "physics_hetero": dict(vision=False, policy=False, tracks=HETERO_TRACKS),
     "vision": dict(vision=True, policy=False),
+    # Part O spatial tiling: camera multi-track (K meshes loaded per env, tiled
+    # beyond camera reach). Gate: render slowdown should be sub-linear in K,
+    # VRAM ~linear. Compare against "vision" (K=1) at the same n_envs.
+    "vision_tiled2": dict(vision=True, policy=False, tracks=HETERO_TRACKS[:2]),
+    "vision_tiled3": dict(vision=True, policy=False, tracks=HETERO_TRACKS[:3]),
     "vision_ppo": dict(vision=True, policy=True),
     "vision_dr": dict(vision=True, policy=False, randomize=True),
     # per-episode world-color remap (scene-appearance DR)
@@ -157,6 +162,10 @@ def write_results(rows):
         "vision_worldcolor": ("Vision + world-color DR", "RGB camera", "per-episode color remap"),
         "vision_fulldr": ("Vision, full DR", "RGB camera", "physics+jitter+world color"),
         "vision": ("Vision 160x120", "RGB camera", "BatchRenderer, random actions"),
+        "vision_tiled2": ("Vision, 2 tracks (tiled)", "RGB camera",
+                          "Part O spatial tiling, K=2"),
+        "vision_tiled3": ("Vision, 3 tracks (tiled)", "RGB camera",
+                          "Part O spatial tiling, K=3"),
         "vision_ppo": ("Vision + PPO update", "RGB camera", "full training loop (render + CNN fwd/bwd)"),
         "vision_dr": ("Vision + DR", "RGB camera", "physics + camera-mount randomization"),
         "vision_hetero": ("Vision + DR + heterogeneous", "RGB camera",

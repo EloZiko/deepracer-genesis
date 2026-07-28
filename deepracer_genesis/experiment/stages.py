@@ -377,6 +377,10 @@ class DomainRandomizationPhysics(Stage):
         com: Per-link center-of-mass shift magnitude in meters.
         gains: Steering/wheel gain scale range.
         armature: Joint armature value range.
+        track_width: Per-episode scale on the rulebook track half-width
+            (feature mode only; off = (1.0, 1.0)). The rendered mesh width is
+            fixed, so a camera view would desync — the env applies this only in
+            feature mode (ignored for camera envs).
         KIND: Stage category tag (obs_dr_physics).
     """
 
@@ -387,6 +391,7 @@ class DomainRandomizationPhysics(Stage):
     com: "Space | float" = 0.01              # +- m per link
     gains: "Space | tuple[float, float]" = (0.8, 1.2)
     armature: "Space | tuple[float, float]" = (0.0, 0.01)
+    track_width: "Space | tuple[float, float]" = (1.0, 1.0)  # off by default
 
     KIND = "obs_dr_physics"
 
@@ -398,6 +403,7 @@ class DomainRandomizationPhysics(Stage):
             "steer_kp_scale": _dr_cfg_value(self.gains),
             "wheel_kv_scale": _dr_cfg_value(self.gains),
             "armature_range": _dr_cfg_value(self.armature),
+            "track_width_scale": _dr_cfg_value(self.track_width),
         }
         return replace(spec, obs_dr=replace(spec.obs_dr, physics=physics))
 

@@ -157,14 +157,13 @@ def test_vector_policy_cannot_eat_raw_camera():
 
 
 def test_nyx_heterogeneous_rejected():
-    # heterogeneous CAMERA training is rejected for every renderer: nyx by
-    # repo constraint, madrona because genesis 1.2.1 has no per-env variant
-    # visibility on the batch-render path (all variants superimpose)
-    for render in ("nyx", "madrona"):
-        with pytest.raises(SpecError):
-            (CameraEnvironment(render=render,
-                               tracks=("reinvent_base", "reInvent2019_track"))
-             >> AsymmetricCameraPolicy()).build()
+    # nyx cannot do heterogeneous tracks at all (repo constraint) -> hard error.
+    # madrona multi-track camera IS allowed now via Part O spatial tiling (it
+    # only warns) -- see test_appearance_dr_routes_and_validates.
+    with pytest.raises(SpecError):
+        (CameraEnvironment(render="nyx",
+                           tracks=("reinvent_base", "reInvent2019_track"))
+         >> AsymmetricCameraPolicy()).build()
 
 
 def test_lagrangian_without_cost_env_rejected():
@@ -289,9 +288,9 @@ def test_appearance_dr_routes_and_validates():
          >> DomainRandomizationTrackAppearance()
          >> VectorPolicy()).build()
 
-    # multi-track camera is unsound under the batch renderer (no per-env
-    # variant visibility in genesis 1.2.1); multi-track feature is fine
-    with pytest.raises(SpecError, match="multi-track"):
+    # Part O: multi-track camera (madrona) is now sound via spatial tiling —
+    # it builds, but warns about the K× render/memory tax (benchmark gate)
+    with pytest.warns(UserWarning, match="spatial tiling"):
         (CameraEnvironment(num_envs=8, tracks=("reinvent_base",
                                                "reInvent2019_track"))
          >> AsymmetricCameraPolicy(actor_keys=("camera",),
@@ -299,6 +298,69 @@ def test_appearance_dr_routes_and_validates():
     (FeatureEnvironment(num_envs=8, tracks=("reinvent_base",
                                             "reInvent2019_track"))
      >> VectorPolicy()).build()
+
+
+def test_rsl_backend_maps_spec_and_gates_dispatch():
+    from deepracer_genesis.experiment import (AsymmetricCameraPolicy,
+                                              CameraEnvironment, PPO,
+                                              VectorPolicy)
+    from deepracer_genesis.experiment.rsl_backend import (rsl_supported,
+                                                          spec_to_train_cfg)
+
+    # feature + symmetric + continuous PPO => migrated (rsl-rl) scope
+    spec = (FeatureEnvironment(num_envs=8) >> VectorPolicy()
+            >> PPO(epochs=7, lr=1e-3, horizon=32, gae_lambda=0.9)).build()
+    assert rsl_supported(spec)
+    cfg = spec_to_train_cfg(spec)
+    assert cfg["obs_groups"] == {"actor": ["state"], "critic": ["state"]}
+    assert cfg["num_steps_per_env"] == 32                  # horizon -> num_steps_per_env
+    assert cfg["algorithm"]["num_learning_epochs"] == 7    # epochs -> num_learning_epochs
+    assert cfg["algorithm"]["learning_rate"] == 1e-3       # lr -> learning_rate
+    assert cfg["algorithm"]["lam"] == 0.9                  # gae_lambda -> lam
+
+    # camera + asymmetric critic is migrated too (obs_groups is native to rsl-rl)
+    cam = (CameraEnvironment(num_envs=8)
+           >> AsymmetricCameraPolicy(actor_keys=("camera",),
+                                     critic_keys=("camera", "state"))).build()
+    assert rsl_supported(cam)
+    cam_cfg = spec_to_train_cfg(cam)
+    assert cam_cfg["obs_groups"] == {"actor": ["camera"], "critic": ["camera", "state"]}
+
+    # cost / frozen-CNN / action-DR still route to the TorchRL Trainer
+    from deepracer_genesis.experiment import (DomainRandomizationActions,
+                                              SafeRLFeatureEnvironment)
+    cost = (SafeRLFeatureEnvironment(num_envs=8, budget=5.0)
+            >> VectorPolicy()).build()
+    assert not rsl_supported(cost)
+    act_dr = (FeatureEnvironment(num_envs=8) >> VectorPolicy()
+              >> DomainRandomizationActions(steer_noise=0.1)).build()
+    assert not rsl_supported(act_dr)
+
+
+def test_track_width_dr_routes_and_defaults_off():
+    from deepracer_genesis.experiment import VectorPolicy
+
+    # explicit range routes to obs_dr.physics under the track_width_scale key
+    spec = (FeatureEnvironment(num_envs=8)
+            >> DomainRandomizationPhysics(track_width=(0.9, 1.15))
+            >> VectorPolicy()).build()
+    assert spec.obs_dr.physics["track_width_scale"] == (0.9, 1.15)
+
+    # left unset, the knob is neutral (off) so existing DR runs are unchanged
+    spec_off = (FeatureEnvironment(num_envs=8)
+                >> DomainRandomizationPhysics()
+                >> VectorPolicy()).build()
+    assert spec_off.obs_dr.physics["track_width_scale"] == (1.0, 1.0)
+
+
+def test_track_width_scale_in_catalog_as_geometry_layer():
+    from deepracer_genesis.randomization.catalog import BY_NAME, by_layer
+
+    knob = BY_NAME["track_width_scale"]
+    assert knob.layer == "geometry"
+    assert knob.cfg_key == "rand.track_width_scale"
+    assert "half_width" in knob.signals
+    assert knob in by_layer("geometry")
 
 
 def test_discrete_action_space_routes_and_validates():

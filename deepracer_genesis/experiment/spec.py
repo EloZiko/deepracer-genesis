@@ -394,18 +394,22 @@ class ExperimentSpec:
 
         Raises:
             SpecError: If appearance/image-aug/camera-jitter DR is used without a
-                camera env, or multi-track camera training is requested.
+                camera env.
         """
         env, obs_dr = self.env, self.obs_dr
         if obs_dr.appearance and env.modality != "camera":
             raise SpecError("appearance DR recolors the rendered observation; "
                             "it needs a camera env")
-        if env.modality == "camera" and len(env.tracks) > 1:
-            raise SpecError(
-                "multi-track camera training is unsound under the batch "
-                "renderer (per-env variant visibility is not implemented in "
-                "genesis 1.2.1 — all tracks render superimposed); "
-                "multi-track works for feature envs")
+        if env.modality == "camera" and len(env.tracks) > 1 and env.render == "madrona":
+            # Part O: sound via spatial tiling (each variant on its own world
+            # tile), NOT the broken heterogeneous-morph path. It costs K× track
+            # geometry per env (render + memory ~linear in K) — run the Part O
+            # benchmark gate before scaling K.
+            warnings.warn(
+                "multi-track camera training uses Part O spatial tiling: all %d "
+                "track meshes load into every env (render + memory scale ~K); "
+                "benchmark aggregate steps/sec before scaling the track count"
+                % len(env.tracks), stacklevel=2)
         if (obs_dr.image_aug or obs_dr.camera_jitter) and env.modality != "camera":
             raise SpecError("DomainRandomizationCamera requires a camera env")
 

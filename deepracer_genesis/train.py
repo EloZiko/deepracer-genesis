@@ -21,7 +21,11 @@ def main():
     parser.add_argument("--backend", choices=("gpu", "cpu"), default="gpu",
                         help="Genesis compute backend")
     parser.add_argument("--resume", default=None, help="checkpoint path to resume from")
+    parser.add_argument("--seed", type=int, default=0, help="torch RNG seed (reproducibility)")
     args = parser.parse_args()
+
+    import torch
+    torch.manual_seed(args.seed)
 
     from deepracer_genesis._gs import ensure_init
     from deepracer_genesis.algorithms.rsl_rl import build_runner

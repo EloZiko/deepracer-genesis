@@ -98,6 +98,24 @@ class Track:
         self.curvature = dyaw / seg_len                        # (W,)
 
 
+def grid_offsets(n_variants, spacing, device):
+    """World-XY translation per variant on a near-square grid (Part O tiling).
+
+    Returns a ``(n_variants, 2)`` tensor. With ``spacing <= 0`` (the default,
+    no tiling) every offset is zero, so all variants sit superimposed at the
+    origin exactly as before. With a positive spacing the variants are laid out
+    on a ``ceil(sqrt(V))``-column grid so that, spaced beyond camera reach, each
+    env's car sees only its home tile.
+    """
+    if spacing <= 0 or n_variants <= 1:
+        return torch.zeros(n_variants, 2, device=device)
+    cols = int(math.ceil(math.sqrt(n_variants)))
+    idx = torch.arange(n_variants, device=device)
+    col = (idx % cols).float()
+    row = torch.div(idx, cols, rounding_mode="floor").float()
+    return torch.stack([col * spacing, row * spacing], dim=1)
+
+
 def balanced_variant_mapping(n_variants, n_envs, device):
     """Map variants to envs in contiguous blocks, matching Genesis morph assignment."""
     if n_envs >= n_variants:
@@ -132,7 +150,7 @@ class MultiTrack:
         n_wps_env: waypoint count per env.
     """
 
-    def __init__(self, names, num_envs, device):
+    def __init__(self, names, num_envs, device, grid_spacing=0.0):
         self.tracks = [Track(n, device) for n in names]
         self.names = list(names)
         self.device = device
@@ -141,6 +159,14 @@ class MultiTrack:
         W = max(t.n_wps for t in self.tracks)
         V = len(self.tracks)
 
+        # Part O spatial tiling: each variant is translated to its own world
+        # tile so a camera env sees only its home track. Applied to ABSOLUTE
+        # fields only (waypoint centers below, spawn positions in spawn_pose);
+        # tangent/normal/half_width/cum_len/curvature are local/differential and
+        # therefore offset-invariant. grid_spacing=0 -> all-zero -> no tiling.
+        self.grid_spacing = grid_spacing
+        self.variant_offset = grid_offsets(V, grid_spacing, device)   # (V, 2)
+
         def pad(attr, fill):
             out = torch.full((V, W, *getattr(self.tracks[0], attr).shape[1:]), fill, device=device)
             for v, t in enumerate(self.tracks):
@@ -148,6 +174,11 @@ class MultiTrack:
             return out
 
         self.center = pad("center", float("inf"))         # (V, W, 2)
+        # translate each variant's real waypoints onto its tile (padding stays
+        # +inf: inf + finite = inf, and localize relies on +inf padding to never
+        # win the nearest-waypoint argmin)
+        for v, t in enumerate(self.tracks):
+            self.center[v, : t.n_wps] += self.variant_offset[v]
         self.tangent = pad("tangent", 0.0)
         self.normal = pad("normal", 0.0)
         self.track_yaw = pad("track_yaw", 0.0)

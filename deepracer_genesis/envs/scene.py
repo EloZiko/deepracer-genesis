@@ -75,20 +75,37 @@ def build_scene(env: "DeepRacerEnv", env_cfg: dict, show_viewer: bool) -> None:
     # Nyx cannot read DAE; use the OBJ conversions (same geometry/textures)
     nyx = isinstance(env.renderer, NyxRenderer)
     mesh_paths = env.track.obj_paths if nyx else env.track.mesh_paths
+    tiled = float(getattr(env.track, "grid_spacing", 0.0)) > 0.0
     if nyx and len(mesh_paths) > 1:
         raise NotImplementedError("heterogeneous tracks are not supported with the Nyx renderer")
-    if env.renderer.has_camera and len(mesh_paths) > 1:
-        raise NotImplementedError(
-            "heterogeneous multi-track CAMERA training is unsound under the "
-            "batch renderer: genesis 1.2.1 never feeds vgeom.active_envs_mask "
-            "to it, so every env renders ALL track variants superimposed "
-            "(z-fighting). Feature-mode multi-track (no rendering) is fine.")
-    track_morphs = [gs.morphs.Mesh(file=p, fixed=True, collision=False)
-                    for p in mesh_paths]
-    # a list of morphs makes the entity heterogeneous: each parallel env
-    # simulates (and renders) one geometry variant
-    env.track_entity = env.scene.add_entity(
-        track_morphs if len(track_morphs) > 1 else track_morphs[0])
+
+    if tiled:
+        # Part O spatial tiling: load ALL variant meshes into EVERY env as
+        # homogeneous geometry, each translated to its own world tile
+        # (env.track.variant_offset). Cars spawn on their home tile (the offset
+        # falls out of the offset waypoints/spawn_pose) and tiles are spaced
+        # beyond camera reach, so each camera sees only its home track — no
+        # z-fighting, no reliance on the broken heterogeneous-morph render path.
+        offsets = env.track.variant_offset.tolist()
+        env.track_entity = [
+            env.scene.add_entity(gs.morphs.Mesh(
+                file=p, pos=(offsets[k][0], offsets[k][1], 0.0),
+                fixed=True, collision=False))
+            for k, p in enumerate(mesh_paths)]
+    else:
+        if env.renderer.has_camera and len(mesh_paths) > 1:
+            raise NotImplementedError(
+                "heterogeneous multi-track CAMERA training is unsound under the "
+                "batch renderer: genesis 1.2.1 never feeds vgeom.active_envs_mask "
+                "to it, so every env renders ALL track variants superimposed "
+                "(z-fighting). Use spatial tiling (track_grid_spacing) for camera "
+                "multi-track; feature-mode multi-track (no rendering) is fine.")
+        track_morphs = [gs.morphs.Mesh(file=p, fixed=True, collision=False)
+                        for p in mesh_paths]
+        # a list of morphs makes the entity heterogeneous: each parallel env
+        # simulates (and renders) one geometry variant
+        env.track_entity = env.scene.add_entity(
+            track_morphs if len(track_morphs) > 1 else track_morphs[0])
 
     # renderer adds its cameras / lights / sensors, then we build the scene
     env.renderer.build(env, env_cfg["vision"])

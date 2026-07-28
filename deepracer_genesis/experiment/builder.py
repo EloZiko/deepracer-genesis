@@ -35,6 +35,7 @@ _NEUTRAL_PHYSICS = {
     "steer_kp_scale": (1.0, 1.0),
     "wheel_kv_scale": (1.0, 1.0),
     "armature_range": (0.0, 0.0),
+    "track_width_scale": (1.0, 1.0),
 }
 
 

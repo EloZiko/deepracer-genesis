@@ -18,7 +18,7 @@ from typing import Literal
 
 from .spaces import FloatRange, IntRange, Space, SymRange
 
-Layer = Literal["physics", "visual", "actuation", "image"]
+Layer = Literal["physics", "visual", "actuation", "image", "geometry"]
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,11 @@ CATALOG: list[Knob] = [
          ("v_forward",)),
     Knob("armature", FloatRange(0.0, 0.01), "physics", "rand.armature_range",
          ("v_forward", "yaw_rate")),
+    # ---- geometry (applied in the rulebook, feature mode only) ----
+    Knob("track_width_scale", FloatRange(0.9, 1.15), "geometry", "rand.track_width_scale",
+         ("off_track", "lateral", "half_width"),
+         "per-episode scale on rulebook half-width; feature mode only "
+         "(mesh width is fixed, so scaling it would desync a camera view)"),
     # ---- visual (applied in the renderer) ----
     Knob("world_color", FloatRange(0.0, 0.6), "visual", "vision.appearance.world_color",
          ("camera",), "per-episode YIQ remap strength"),

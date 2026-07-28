@@ -36,6 +36,12 @@ deepracer_genesis = ["assets/**/*"]
 [dependency-groups]
 dev = [
     "pytest>=8",
+    # gs-madrona bundles nvJitLink 12.4 but prefers the system libnvrtc.so.13 at
+    # runtime; on a CUDA-13 toolkit that mismatch breaks the batch renderer's
+    # megakernel link. Pinning NVRTC 12.4 here keeps `uv sync` from pruning it
+    # (it silently did, breaking camera rendering). Pairs with
+    # scripts/fix_madrona_cuda13.sh (symlinks + dlopen-name patch).
+    "nvidia-cuda-nvrtc-cu12==12.4.127",
     "catppuccin-jupyterlab>=0.2.5",
     "ipykernel>=7.3.0",
     "ipywidgets>=8.1.8",

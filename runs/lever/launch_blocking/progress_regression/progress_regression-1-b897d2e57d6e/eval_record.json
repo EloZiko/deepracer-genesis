@@ -1,0 +1,139 @@
+{
+  "spec_id": "b897d2e57d6e",
+  "spec": {
+    "env": {
+      "modality": "feature",
+      "render": "none",
+      "backend": "gpu",
+      "view": "none",
+      "resolution": [
+        160,
+        120
+      ],
+      "fov": 90.0,
+      "lookahead_k": 10,
+      "feature_set": null,
+      "feature_params": {},
+      "tracks": [
+        "reinvent_base"
+      ],
+      "num_envs": 16,
+      "random_start": true,
+      "random_direction": false,
+      "reward": null,
+      "reward_scales": {},
+      "emits_cost": false,
+      "cost_fn": null,
+      "cost_budget": null
+    },
+    "obs_dr": {
+      "image_aug": {},
+      "camera_jitter": {},
+      "physics": {
+        "friction_range": [
+          0.6,
+          1.4
+        ],
+        "mass_shift_kg": 0.2,
+        "com_shift_m": 0.01,
+        "steer_kp_scale": [
+          0.8,
+          1.2
+        ],
+        "wheel_kv_scale": [
+          0.8,
+          1.2
+        ],
+        "armature_range": [
+          0.0,
+          0.01
+        ],
+        "track_width_scale": [
+          1.0,
+          1.0
+        ]
+      },
+      "appearance": {}
+    },
+    "encoder": {
+      "kind": "none",
+      "checkpoint": null,
+      "output_dim": null,
+      "layer": null,
+      "out_key": "encoded"
+    },
+    "policy": {
+      "actor_keys": [
+        "state"
+      ],
+      "critic_keys": [
+        "state"
+      ],
+      "cnn": null,
+      "mlp": {
+        "hidden": [
+          256,
+          128,
+          64
+        ],
+        "activation": "elu"
+      },
+      "actions": null
+    },
+    "action_dr": {
+      "steer_noise": 0.0,
+      "speed_noise": 0.0,
+      "delay_steps": 0
+    },
+    "algorithm": {
+      "cls": null,
+      "ppo": {
+        "clip": 0.2,
+        "epochs": 5,
+        "minibatches": 4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "lr": 0.0003,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0,
+        "horizon": 24
+      },
+      "lagrangian": {},
+      "params": {}
+    },
+    "eval": {
+      "real_tracks": [],
+      "eval_num_envs": 64,
+      "eval_episodes": null,
+      "charts": true
+    },
+    "total_env_steps": 200000,
+    "eval_every_steps": 0,
+    "seed": 1,
+    "ablation_group": "progress_regression",
+    "variant": "progress_regression"
+  },
+  "seed": 1,
+  "ablation_group": "progress_regression",
+  "variant": "progress_regression",
+  "metrics": {
+    "episodes": 16,
+    "mean_return": 825.1224365234375,
+    "mean_progress_m": 77.99378967285156,
+    "mean_episode_s": 30.0,
+    "completion_rate": 1.0,
+    "mean_laps": 4.404149532318115,
+    "offtrack_rate": 0.0,
+    "lap_time_s": 6.821137428283691,
+    "mean_speed_mps": 2.599792957305908
+  },
+  "train": {
+    "wall_clock_s": 2345.2,
+    "steps_per_s": 85.3,
+    "total_env_steps": 200064,
+    "checkpoint": "runs/lever/launch_blocking/progress_regression/progress_regression-1-b897d2e57d6e/best.pt"
+  },
+  "eval_history": [],
+  "holdout": {},
+  "created_at": "2026-07-27T23:32:16"
+}

@@ -17,6 +17,10 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "track": track,
             "backend": backend,       # "gpu" | "cpu" (Part M)
             "view": view,             # "none" | "gui" | "spectator" | "topdown"
+            # Part O: metres between track tiles in camera multi-track mode.
+            # Must exceed the camera's reach so no foreign tile enters frame;
+            # only applied when vision + >1 track (ignored otherwise).
+            "track_grid_spacing": 100.0,
         },
         # action mapping (original DeepRacer Box([-30, 0.1], [30, 4.0]))
         "action": {
@@ -101,6 +105,9 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "armature_range": (0.0, 0.01),
             "camera_pitch_jitter_deg": 2.0,
             "camera_pos_jitter_m": 0.005,
+            # feature-mode geometry DR: per-episode scale on the rulebook track
+            # half-width (sim2real: printed tracks measured wider). Off = (1,1).
+            "track_width_scale": (1.0, 1.0),
         },
     }
 

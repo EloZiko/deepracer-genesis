@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import math
+import os
 
 import torch
 from tensordict import TensorDict
@@ -117,6 +118,14 @@ class DeepRacerEnv:
         self.num_envs = num_envs
         self.num_actions = 2
         self.vision = env_cfg["vision"]["vision"]
+        # Opt-in coarse fence (DRG_STEP_SYNC=1): one device sync per control step
+        # after the physics kernels, before torch (PPO) proceeds. Drains in-flight
+        # quadrants kernels so its async free never overlaps them — mitigates the
+        # sporadic CUDA_ERROR_ILLEGAL_ADDRESS in cuMemFreeAsync (a timing race in
+        # quadrants' async allocator; lever-confirmed that synchronization fixes
+        # it). Far cheaper than PYTORCH_NO_CUDA_MEMORY_CACHING (per-free sync).
+        self._step_sync = (os.environ.get("DRG_STEP_SYNC") == "1"
+                           and torch.cuda.is_available())
         # discrete action support: a (K, 2) table of [steer, speed] pairs.
         # step() accepts index tensors (N,) and looks them up — every consumer
         # (training, eval, collection) stays agnostic.
@@ -131,7 +140,12 @@ class DeepRacerEnv:
 
         track = sim["track"]
         names = track if isinstance(track, (list, tuple)) else [track]
-        self.track = MultiTrack(names, num_envs, self.device)
+        # Part O: camera multi-track needs spatial tiling (each variant on its
+        # own world tile) so an env's camera sees only its home track. Feature
+        # and single-track envs get no offset (spacing 0), so they are unchanged.
+        tiling = self.vision and len(names) > 1
+        grid_spacing = sim.get("track_grid_spacing", 100.0) if tiling else 0.0
+        self.track = MultiTrack(names, num_envs, self.device, grid_spacing=grid_spacing)
 
         # view="gui" opens the interactive Genesis viewer window (Part M); the
         # explicit show_viewer arg still works and either one enables it.
@@ -213,6 +227,10 @@ class DeepRacerEnv:
         # per-env driving direction: +1 follows waypoint order (counter-
         # clockwise on re:Invent tracks), -1 drives the track reversed.
         self.dir_sign = torch.ones(N, device=self.device)
+        # per-env track-width DR (feature mode): scales the rulebook half_width
+        # (off_track / lateral norm / centered reward) without touching the mesh;
+        # redrawn each reset. 1.0 = nominal. Torch-only, so no genesis-setter cost.
+        self.track_width_factor = torch.ones(N, device=self.device)
         self.offtrack_buf = torch.zeros(N, device=self.device, dtype=torch.bool)
         self.flipped_buf = torch.zeros(N, device=self.device, dtype=torch.bool)
         self.emit_cost = bool(env_cfg["reward"]["emit_cost"])
@@ -302,6 +320,8 @@ class DeepRacerEnv:
         self.car.drive(steer, speed)
         for _ in range(self.cfg["sim"]["decimation"]):
             self.scene.step()
+        if self._step_sync:
+            torch.cuda.synchronize()   # coarse fence (see __init__); opt-in
 
         self.episode_length_buf += 1
         self._post_physics()
@@ -359,7 +379,10 @@ class DeepRacerEnv:
         loc = self.track.localize(pos[:, :2])
         self.wp_idx = loc["wp_idx"]
         self.lateral = loc["lateral"]
-        self.half_width = loc["half_width"]
+        # track-width DR: one per-env scalar changes the effective road width
+        # everywhere the rulebook reads it (off_track, lateral/half_width,
+        # centered reward). 1.0 when the knob is off.
+        self.half_width = loc["half_width"] * self.track_width_factor
         # all track-frame quantities are expressed in the env's own driving
         # direction (dir_sign): a reversed car aligned with the reversed tangent
         # has heading_err 0 and accumulates positive progress
@@ -408,6 +431,15 @@ class DeepRacerEnv:
             flip = torch.rand(n, device=self.device) < 0.5
             self.dir_sign[env_ids] = torch.where(flip, -1.0, 1.0)
             yaw = yaw + flip.float() * math.pi
+
+        # track-width DR (feature mode only): the rendered mesh width is fixed,
+        # so scaling only the rulebook width would desync the camera view — scope
+        # it to feature envs (torch-only; no crash-prone genesis setter).
+        if self.cfg["rand"]["randomize"] and not self.vision:
+            lo, hi = self.cfg["rand"].get("track_width_scale", (1.0, 1.0))
+            if (lo, hi) != (1.0, 1.0):
+                self.track_width_factor[env_ids] = (
+                    lo + (hi - lo) * torch.rand(n, device=self.device))
 
         self.renderer.resample_appearance(env_ids)   # world-color DR (vision only)
 
