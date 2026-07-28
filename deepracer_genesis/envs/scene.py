@@ -16,6 +16,19 @@ if TYPE_CHECKING:
     from .base_env import DeepRacerEnv
 
 
+def _realtime_factor(env_cfg: dict) -> float | None:
+    """Viewer pacing factor from the sim cfg; <=0 means uncapped (None).
+
+    Args:
+        env_cfg: The env config; reads ``sim.realtime_factor`` (default 1.0).
+
+    Returns:
+        The factor for ViewerOptions, or None to step as fast as compute allows.
+    """
+    rf = env_cfg["sim"].get("realtime_factor", 1.0)
+    return None if rf is None or rf <= 0 else float(rf)
+
+
 def build_scene(env: "DeepRacerEnv", env_cfg: dict, show_viewer: bool) -> None:
     """Create the scene, add the plane/car/track morph(s), and build it.
 
@@ -59,6 +72,9 @@ def build_scene(env: "DeepRacerEnv", env_cfg: dict, show_viewer: bool) -> None:
         ),
         renderer=env.renderer.scene_renderer(),
         show_viewer=show_viewer,
+        # viewer pacing: realtime_factor x real time (None/<=0 = uncapped, i.e.
+        # step as fast as compute allows). Only matters when the viewer is shown.
+        viewer_options=gs.options.ViewerOptions(realtime_factor=_realtime_factor(env_cfg)),
     )
 
     # green ground doubles as the field: some DAE ground materials render

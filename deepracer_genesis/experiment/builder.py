@@ -57,6 +57,7 @@ class Builder:
         cfg["obs"]["feature_params"] = dict(env.feature_params)
         cfg["spawn"]["random_start"] = env.random_start
         cfg["spawn"]["random_direction"] = env.random_direction
+        cfg["sim"]["realtime_factor"] = env.realtime_factor
         cfg["reward"]["reward"] = env.reward   # a callable (or None -> deepracer default)
         cfg["reward"]["reward_scale_overrides"] = dict(env.reward_scales)
         if env.render == "nyx":

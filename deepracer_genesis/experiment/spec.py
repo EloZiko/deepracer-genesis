@@ -57,6 +57,7 @@ class EnvSpec:
     render: Literal["madrona", "nyx", "none"] = "none"
     backend: Literal["gpu", "cpu"] = "gpu"
     view: Literal["none", "gui", "spectator", "topdown"] = "none"
+    realtime_factor: float = 1.0   # viewer pacing (view="gui"); <=0 = uncapped
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
     lookahead_k: int = 10

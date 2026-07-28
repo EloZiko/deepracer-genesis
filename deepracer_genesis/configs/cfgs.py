@@ -17,6 +17,8 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "track": track,
             "backend": backend,       # "gpu" | "cpu" (Part M)
             "view": view,             # "none" | "gui" | "spectator" | "topdown"
+            # viewer pacing when view="gui": Nx real time; <=0 = uncapped
+            "realtime_factor": 1.0,
             # Part O: metres between track tiles in camera multi-track mode.
             # Must exceed the camera's reach so no foreign tile enters frame;
             # only applied when vision + >1 track (ignored otherwise).

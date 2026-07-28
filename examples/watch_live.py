@@ -17,10 +17,11 @@ class WatchLive(Experiment):
     """GPU feature env + interactive viewer + physics DR + holdout eval + charts.
 
     Attributes:
-        num_envs: kept small — the viewer is a debug/watch path.
+        num_envs: watchable in the viewer yet enough parallelism to learn and
+            use the GPU (rsl-rl leaves plenty of headroom; see the perf review).
     """
 
-    num_envs = 16
+    num_envs = 64
     seed = 0
     total_env_steps = 3_000_000
     eval_every_steps = 500_000
@@ -29,8 +30,9 @@ class WatchLive(Experiment):
 
     def pipeline(self):
         return (
-            FeatureEnvironment(num_envs=self.num_envs,
-                               backend="gpu", view="gui")   # GPU + viewer (Part M)
+            FeatureEnvironment(num_envs=self.num_envs, backend="gpu",
+                               view="gui",              # GPU + viewer (Part M)
+                               realtime_factor=0)       # 0 = uncapped: run as fast as the GPU allows
             >> DomainRandomizationPhysics()
             >> VectorPolicy(keys=("state",))
             >> Evaluation(real_tracks=("reinvent_base", "Oval_track"),

@@ -158,6 +158,7 @@ class FeatureEnvironment(Stage):
     random_direction: bool = False     # coin-flip CW/CCW per episode
     backend: str = "gpu"               # "gpu" | "cpu" (Part M)
     view: str = "none"                 # "none" | "gui" | "spectator" | "topdown"
+    realtime_factor: float = 1.0       # viewer pacing (view="gui"); <=0 = uncapped
 
     KIND = "environment"
 
@@ -171,6 +172,7 @@ class FeatureEnvironment(Stage):
             random_start=self.random_start,
             random_direction=self.random_direction,
             backend=self.backend, view=self.view,
+            realtime_factor=self.realtime_factor,
         ))
 
 
@@ -204,6 +206,7 @@ class CameraEnvironment(Stage):
     random_direction: bool = False     # coin-flip CW/CCW per episode
     backend: str = "gpu"               # "gpu" | "cpu" (Part M)
     view: str = "none"                 # "none" | "gui" | "spectator" | "topdown"
+    realtime_factor: float = 1.0       # viewer pacing (view="gui"); <=0 = uncapped
 
     KIND = "environment"
 
@@ -218,6 +221,7 @@ class CameraEnvironment(Stage):
             num_envs=self.num_envs, random_start=self.random_start,
             random_direction=self.random_direction,
             backend=self.backend, view=self.view,
+            realtime_factor=self.realtime_factor,
         ))
 
 
