@@ -93,8 +93,6 @@ def evaluate_policy(sim: "DeepRacerEnv", actor, steps: Optional[int] = None,
     Returns:
         Scalar metrics dict from aggregate_episodes().
     """
-    from torchrl.envs.utils import ExplorationType, set_exploration_type
-
     steps = steps or sim.max_episode_length + 300
     n = sim.num_envs
     device = sim.device
@@ -105,7 +103,7 @@ def evaluate_policy(sim: "DeepRacerEnv", actor, steps: Optional[int] = None,
     streams = {k: [] for k in ("reward", "done", "progress_delta", "offtrack")}
     costs = [] if use_cost else None
 
-    with set_exploration_type(ExplorationType.DETERMINISTIC), torch.no_grad():
+    with torch.no_grad():
         for _ in range(steps):
             td = sim.get_observations().clone()
             if obs_transform is not None:

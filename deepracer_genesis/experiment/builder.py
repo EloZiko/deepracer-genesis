@@ -1,32 +1,13 @@
-"""Build an ExperimentSpec into a live Genesis sim plus TorchRL objects.
+"""Builder: turn a validated ExperimentSpec into the live Genesis sim.
 
-The only layer that imports the heavy dependencies.
+The only layer that imports the heavy sim dependency.
 """
 
 from __future__ import annotations
 
-import torch
-from torch import nn
-
-import genesis as gs
-from tensordict.nn import NormalParamExtractor, TensorDictModule, TensorDictSequential
-from torchrl.collectors import Collector
-from torchrl.data import LazyTensorStorage, TensorDictReplayBuffer
-from torchrl.data.replay_buffers.samplers import SamplerWithoutReplacement
-from torchrl.envs import TransformedEnv
-from torchrl.envs.transforms import Transform  # noqa: F401 (annotations)
-from torchrl.envs.utils import ExplorationType
-from torchrl.modules import MLP, ConvNet, ProbabilisticActor, TanhNormal, ValueOperator
-from torchrl.objectives import ClipPPOLoss
-from torchrl.objectives.value.advantages import GAE
-
 from ..configs.cfgs import get_env_cfg
 from ..envs import DeepRacerEnv
-from ..envs.torchrl_env import TorchRLDeepRacerEnv
 from .spec import ExperimentSpec
-from .transforms import ActionNoiseDelay, ImageAug
-
-_ACT = {"elu": nn.ELU, "relu": nn.ReLU, "tanh": nn.Tanh}
 
 _NEUTRAL_PHYSICS = {
     "friction_range": (1.0, 1.0),
@@ -40,20 +21,16 @@ _NEUTRAL_PHYSICS = {
 
 
 def _ensure_genesis(backend: str = "gpu"):
-    from .._gs import ensure_init      # SSOT gs.init (Part M)
+    """Initialize Genesis on the given backend (SSOT gs.init, Part M)."""
+    from .._gs import ensure_init
     ensure_init(backend)
 
 
 class Builder:
-    """Turn a validated ExperimentSpec into live Genesis + TorchRL objects.
-
-    The sim is built once and cached; every other product derives from it.
-
-    Args:
-        spec: The experiment spec; validated on construction.
+    """Turn a validated ExperimentSpec into the live Genesis sim (built once).
 
     Attributes:
-        spec: The validated experiment spec driving every build.
+        spec: The validated experiment spec driving the sim build.
     """
 
     def __init__(self, spec: ExperimentSpec) -> None:
@@ -61,9 +38,12 @@ class Builder:
         self.spec: ExperimentSpec = spec
         self._sim: DeepRacerEnv | None = None
 
-    # ------------------------------------------------------------- sim
     def sim_cfg(self) -> dict:
-        """Translate the EnvSpec (+DR spec) into the sim's config dict."""
+        """Translate the EnvSpec (+DR spec) into the sim's config dict.
+
+        Returns:
+            The nested env config the sim is constructed from.
+        """
         env = self.spec.env
         obs_dr = self.spec.obs_dr
         randomize = bool(obs_dr.physics or obs_dr.camera_jitter)
@@ -101,9 +81,8 @@ class Builder:
         """Build (once) and return the Genesis sim.
 
         Args:
-            extra_cfg: Merged into the spec-derived config on FIRST
-                construction only (e.g. spectator camera for visualization
-                rollouts); ignored once the sim exists.
+            extra_cfg: Merged into the spec-derived config on FIRST construction
+                only (e.g. spectator camera, env-side DR); ignored afterwards.
 
         Returns:
             The cached DeepRacerEnv.
@@ -115,280 +94,3 @@ class Builder:
                 cfg.update(extra_cfg)
             self._sim = DeepRacerEnv(num_envs=self.spec.env.num_envs, env_cfg=cfg)
         return self._sim
-
-    # ------------------------------------------------------ torchrl env
-    def transforms(self) -> list["Transform"]:
-        """Obs/action transforms per spec (order: aug -> encoder -> action DR)."""
-        ts = []
-        if self.spec.obs_dr.image_aug:
-            ts.append(ImageAug(self.spec.obs_dr.image_aug))
-        if self.spec.encoder.kind == "frozen_cnn":
-            ts.append(self.encoder_transform())
-        ad = self.spec.action_dr
-        if ad.delay_steps or ad.steer_noise or ad.speed_noise:
-            ts.append(ActionNoiseDelay(self.spec.env.num_envs,
-                                       steer_noise=ad.steer_noise,
-                                       speed_noise=ad.speed_noise,
-                                       delay_steps=ad.delay_steps,
-                                       device=self.sim().device))
-        return ts
-
-    def env(self) -> "TorchRLDeepRacerEnv | TransformedEnv":
-        """Build the collection-side TorchRL training env.
-
-        Returns:
-            The wrapper around the sim, inside a TransformedEnv when the
-            spec carries transforms.
-        """
-        base = TorchRLDeepRacerEnv(self.sim(), emit_cost=self.spec.env.emits_cost)
-        transforms = self.transforms()
-        if not transforms:
-            return base
-        env = TransformedEnv(base)
-        for t in transforms:
-            env.append_transform(t)
-        return env
-
-    # ----------------------------------------------------------- models
-    def _mlp(self, in_features: int, out_features: int) -> MLP:
-        """Build the fused MLP head per the spec's mlp config."""
-        p = self.spec.policy.mlp
-        return MLP(in_features=in_features, out_features=out_features,
-                   num_cells=list(p.get("hidden", (256, 128, 64))),
-                   activation_class=_ACT[p.get("activation", "elu")],
-                   device=self.sim().device)
-
-    def _key_dims(self) -> dict[str, int]:
-        """Flat width of every vector observation key a policy may read."""
-        sim = self.sim()
-        dims = {"state": sim.num_state_obs}
-        if self.spec.encoder.kind == "frozen_cnn":
-            dims[self.spec.encoder.out_key] = self.spec.encoder.output_dim
-        return dims
-
-    def _cnn(self) -> ConvNet:
-        """Camera trunk per the spec's cnn config."""
-        c = self.spec.policy.cnn
-        return ConvNet(in_features=3,
-                       num_cells=list(c["channels"]),
-                       kernel_sizes=list(c["kernels"]),
-                       strides=list(c["strides"]),
-                       activation_class=_ACT[c.get("activation", "relu")],
-                       device=self.sim().device)
-
-    def _cnn_flat_dim(self, cnn: ConvNet) -> int:
-        """Flattened feature width of `cnn` at the spec's resolution."""
-        w, h = self.spec.env.resolution
-        with torch.no_grad():
-            return cnn(torch.zeros(1, 3, h, w, device=self.sim().device)).shape[-1]
-
-    def _head(self, keys, dims, cam_feat_key):
-        """Build one network trunk: optional CNN on 'camera' feeding a fused MLP.
-
-        Returns:
-            (modules, head_keys, in_dim) for the TensorDictSequential head.
-        """
-        modules = []
-        head_keys = []
-        in_dim = 0
-        for k in keys:
-            if k == "camera":
-                cnn = self._cnn()
-                modules.append(TensorDictModule(cnn, in_keys=["camera"],
-                                                out_keys=[cam_feat_key]))
-                head_keys.append(cam_feat_key)
-                in_dim += self._cnn_flat_dim(cnn)
-            else:
-                head_keys.append(k)
-                in_dim += dims[k]
-        return modules, head_keys, in_dim
-
-    def actor(self) -> ProbabilisticActor:
-        """Build the actor over spec.policy.actor_keys.
-
-        TanhNormal over [steer, speed], or Categorical when policy.actions is set.
-
-        Returns:
-            The ProbabilisticActor (exploration type RANDOM; evaluation
-            switches to deterministic via set_exploration_type).
-        """
-        spec = self.spec
-        if spec.policy.actions is not None:
-            return self._discrete_actor()
-        keys = list(spec.policy.actor_keys)
-        dims = self._key_dims()
-        # NormalParamExtractor is its own tensordict stage: only MLP.forward
-        # concatenates multiple positional inputs, nn.Sequential does not
-        if spec.policy.cnn is not None and "camera" in keys:
-            modules, head_keys, in_dim = self._head(keys, dims, "actor_cam_feat")
-            mlp = self._mlp(in_dim, 2 * 2)
-            modules.append(TensorDictModule(mlp, in_keys=head_keys,
-                                            out_keys=["_pi_params"]))
-            # kept for checkpointing — Phase-5 transfer rebuilds the encoder
-            self._actor_cnn, self._actor_mlp = modules[0].module, mlp
-        else:
-            mlp = self._mlp(sum(dims[k] for k in keys), 2 * 2)
-            self._actor_cnn = self._actor_mlp = None
-            modules = [TensorDictModule(mlp, in_keys=keys, out_keys=["_pi_params"])]
-        modules.append(TensorDictModule(NormalParamExtractor(),
-                                        in_keys=["_pi_params"],
-                                        out_keys=["loc", "scale"]))
-        param_module = TensorDictSequential(*modules)
-        return ProbabilisticActor(
-            param_module,
-            in_keys=["loc", "scale"], out_keys=["action"],
-            distribution_class=TanhNormal,
-            distribution_kwargs={"low": -1.0, "high": 1.0},
-            return_log_prob=True,
-            default_interaction_type=ExplorationType.RANDOM,
-        )
-
-    def _discrete_actor(self) -> ProbabilisticActor:
-        spec = self.spec
-        keys = list(spec.policy.actor_keys)
-        dims = self._key_dims()
-        n_actions = len(spec.policy.actions)
-        if spec.policy.cnn is not None and "camera" in keys:
-            modules, head_keys, in_dim = self._head(keys, dims, "actor_cam_feat")
-            mlp = self._mlp(in_dim, n_actions)
-            modules.append(TensorDictModule(mlp, in_keys=head_keys,
-                                            out_keys=["logits"]))
-            self._actor_cnn, self._actor_mlp = modules[0].module, mlp
-        else:
-            mlp = self._mlp(sum(dims[k] for k in keys), n_actions)
-            self._actor_cnn = self._actor_mlp = None
-            modules = [TensorDictModule(mlp, in_keys=keys, out_keys=["logits"])]
-        return ProbabilisticActor(
-            TensorDictSequential(*modules),
-            in_keys=["logits"], out_keys=["action"],
-            distribution_class=torch.distributions.Categorical,
-            return_log_prob=True,
-            default_interaction_type=ExplorationType.RANDOM,
-        )
-
-    def critic(self, out_key: str = "state_value") -> "ValueOperator | TensorDictSequential":
-        """Value head over spec.policy.critic_keys.
-
-        Args:
-            out_key: Output value key; lets the Lagrangian build a second
-                (cost) critic with its own CNN trunk.
-
-        Returns:
-            A ValueOperator, or a TensorDictSequential when a CNN trunk on
-            'camera' feeds the value head.
-        """
-        spec = self.spec
-        keys = list(spec.policy.critic_keys)
-        dims = self._key_dims()
-        if spec.policy.cnn is not None and "camera" in keys:
-            feat_key = f"critic_cam_feat_{out_key}"      # own CNN per value head
-            modules, head_keys, in_dim = self._head(keys, dims, feat_key)
-            head = ValueOperator(self._mlp(in_dim, 1),
-                                 in_keys=head_keys, out_keys=[out_key])
-            return TensorDictSequential(*modules, head)
-        return ValueOperator(self._mlp(sum(dims[k] for k in keys), 1),
-                             in_keys=keys, out_keys=[out_key])
-
-    # -------------------------------------------------- frozen encoder
-    def encoder_module(self) -> tuple[nn.Module, int]:
-        """Rebuild the checkpointed camera actor's trunk as a frozen encoder.
-
-        Loads the CNN and MLP prefix up to the hidden layer of width output_dim.
-        """
-        enc = self.spec.encoder
-        ckpt = torch.load(enc.checkpoint, map_location=self.sim().device,
-                          weights_only=False)
-        if "actor_cnn" not in ckpt:
-            raise ValueError(
-                f"{enc.checkpoint} is not a camera-policy checkpoint "
-                "(no 'actor_cnn'); train a camera experiment first")
-        cnn_cfg, mlp_cfg = ckpt["cnn_cfg"], ckpt["mlp_cfg"]
-        cnn = ConvNet(in_features=3, num_cells=list(cnn_cfg["channels"]),
-                      kernel_sizes=list(cnn_cfg["kernels"]),
-                      strides=list(cnn_cfg["strides"]),
-                      activation_class=_ACT[cnn_cfg.get("activation", "relu")],
-                      device=self.sim().device)
-        cnn.load_state_dict(ckpt["actor_cnn"])
-        flat = self._cnn_flat_dim(cnn)
-        mlp = MLP(in_features=flat, out_features=2 * 2,
-                  num_cells=list(mlp_cfg.get("hidden", (256, 128, 64))),
-                  activation_class=_ACT[mlp_cfg.get("activation", "elu")],
-                  device=self.sim().device)
-        mlp.load_state_dict(ckpt["actor_mlp"])
-        # slice the MLP after the linear+activation pair of width output_dim
-        layers, width = [], None
-        for mod in mlp:
-            layers.append(mod)
-            if isinstance(mod, nn.Linear):
-                width = mod.out_features
-            elif width == enc.output_dim:
-                break
-        else:
-            dims = [m.out_features for m in mlp if isinstance(m, nn.Linear)]
-            raise ValueError(
-                f"encoder output_dim={enc.output_dim} matches no hidden layer "
-                f"of the checkpointed actor MLP (available: {dims[:-1]})")
-        encoder = nn.Sequential(cnn, *layers).eval()
-        encoder.requires_grad_(False)
-        return encoder, enc.output_dim
-
-    def encoder_transform(self):
-        from .transforms import FrozenEncoder
-        encoder, dim = self.encoder_module()
-        return FrozenEncoder(encoder, dim, in_keys=("camera",),
-                             out_keys=(self.spec.encoder.out_key,))
-
-    # -------------------------------------------------------- optimizing
-    def gae(self, critic):
-        ppo = self.spec.algorithm.ppo
-        return GAE(gamma=ppo["gamma"], lmbda=ppo["gae_lambda"],
-                   value_network=critic, device=self.sim().device)
-
-    def gae_cost(self, cost_critic):
-        """Second GAE over the cost stream (cheat-sheet: set_keys fields have
-        no _key suffix; reads ("next","cost"))."""
-        lag = self.spec.algorithm.lagrangian
-        ppo = self.spec.algorithm.ppo
-        g = GAE(gamma=ppo["gamma"], lmbda=lag.get("cost_gae_lambda", 0.95),
-                value_network=cost_critic, device=self.sim().device)
-        g.set_keys(advantage="cost_advantage", value_target="cost_value_target",
-                   value="cost_value", reward="cost")
-        return g
-
-    def loss(self, actor: ProbabilisticActor, critic) -> ClipPPOLoss:
-        """Clipped PPO loss wired per spec.algorithm.ppo."""
-        ppo = self.spec.algorithm.ppo
-        return ClipPPOLoss(actor, critic,
-                           clip_epsilon=ppo["clip"],
-                           entropy_coeff=ppo["entropy_coef"],
-                           critic_coeff=1.0,
-                           loss_critic_type="smooth_l1",
-                           normalize_advantage=True)
-
-    def collector(self, env, actor) -> Collector:
-        """On-policy collector: frames_per_batch = num_envs * horizon."""
-        ppo = self.spec.algorithm.ppo
-        n = self.spec.env.num_envs
-        return Collector(env, actor,
-                         frames_per_batch=n * ppo["horizon"],
-                         total_frames=self.spec.total_env_steps,
-                         device=self.sim().device,
-                         auto_register_policy_transforms=True)
-
-    def buffer(self) -> TensorDictReplayBuffer:
-        """One-rollout minibatch buffer (SamplerWithoutReplacement)."""
-        ppo = self.spec.algorithm.ppo
-        n = self.spec.env.num_envs
-        frames = n * ppo["horizon"]
-        return TensorDictReplayBuffer(
-            storage=LazyTensorStorage(frames, device=self.sim().device),
-            sampler=SamplerWithoutReplacement(),
-            batch_size=max(1, frames // ppo["minibatches"]))
-
-    def optimizer(self, loss_module, *extra_modules) -> torch.optim.Adam:
-        """Adam over the loss module's params (+ any extra modules, e.g.
-        the Lagrangian cost critic)."""
-        params = list(loss_module.parameters())
-        for m in extra_modules:
-            params += list(m.parameters())
-        return torch.optim.Adam(params, lr=self.spec.algorithm.ppo["lr"])

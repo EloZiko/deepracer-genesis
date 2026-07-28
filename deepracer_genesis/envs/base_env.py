@@ -126,6 +126,12 @@ class DeepRacerEnv:
         # it). Far cheaper than PYTORCH_NO_CUDA_MEMORY_CACHING (per-free sync).
         self._step_sync = (os.environ.get("DRG_STEP_SYNC") == "1"
                            and torch.cuda.is_available())
+        # action-space DR (env-side; the rsl-rl backend has no transform pipeline):
+        # k-step command latency then per-channel gaussian noise. Off by default.
+        self.action_dr = dict(env_cfg.get("action_dr", {}))
+        self._act_delay = int(self.action_dr.get("delay_steps", 0))
+        # image-space DR config (applied on the camera obs by the vision subclass)
+        self.image_aug = dict(env_cfg.get("image_aug", {}))
         # discrete action support: a (K, 2) table of [steer, speed] pairs.
         # step() accepts index tensors (N,) and looks them up — every consumer
         # (training, eval, collection) stays agnostic.
@@ -222,6 +228,8 @@ class DeepRacerEnv:
         self.time_out_buf = torch.zeros(N, device=self.device, dtype=torch.bool)
         self.actions = torch.zeros(N, 2, device=self.device)
         self.last_actions = torch.zeros(N, 2, device=self.device)
+        if self._act_delay > 0:      # ring buffer of the last k commands (action DR)
+            self._act_buf = torch.zeros(N, self._act_delay, 2, device=self.device)
         self.progress_m = torch.zeros(N, device=self.device)
         self.laps = torch.zeros(N, device=self.device)
         # per-env driving direction: +1 follows waypoint order (counter-
@@ -295,6 +303,29 @@ class DeepRacerEnv:
         self._post_physics()
 
     # ------------------------------------------------------------------- step
+    def _apply_action_dr(self, a: torch.Tensor) -> torch.Tensor:
+        """Env-side action DR: k-step latency then per-channel gaussian noise.
+
+        Args:
+            a: The clipped ``(N, 2)`` action tensor in [-1, 1].
+
+        Returns:
+            The delayed, noised action, clamped to [-1, 1].
+        """
+        dr = self.action_dr
+        if self._act_delay > 0:
+            out = self._act_buf[:, -1].clone()
+            self._act_buf.copy_(
+                torch.cat([a.unsqueeze(1), self._act_buf[:, :-1]], dim=1))
+            a = out
+        sn, pn = dr.get("steer_noise", 0.0), dr.get("speed_noise", 0.0)
+        if sn or pn:
+            noise = torch.stack([
+                torch.randn(a.shape[0], device=a.device) * sn,
+                torch.randn(a.shape[0], device=a.device) * pn], dim=1)
+            a = a + noise
+        return a.clamp(-1.0, 1.0)
+
     def step(self, actions: torch.Tensor) -> tuple[TensorDict, torch.Tensor, torch.Tensor, dict]:
         """Advance every env by one control step (``decimation`` physics steps).
 
@@ -313,6 +344,8 @@ class DeepRacerEnv:
         if self.action_table is not None and actions.dim() == 1:
             actions = self.action_table[actions.long()]
         self.actions = torch.clip(actions, -1.0, 1.0)
+        if self.action_dr:
+            self.actions = self._apply_action_dr(self.actions)
         act = self.cfg["action"]
         steer = self.actions[:, 0:1] * math.radians(act["max_steering_deg"])
         speed = act["min_speed"] + (self.actions[:, 1:2] + 1) * 0.5 * (
@@ -467,6 +500,8 @@ class DeepRacerEnv:
         self.laps[env_ids] = 0.0
         self.actions[env_ids] = 0.0
         self.last_actions[env_ids] = 0.0
+        if self._act_delay > 0:              # clear delayed commands on reset
+            self._act_buf[env_ids] = 0.0
         self.feature_set.reset(env_ids)   # clear any per-env feature history
         self.progress_m[env_ids] = self.track.localize(pos_xy, envs_idx=env_ids)["progress_m"]
 

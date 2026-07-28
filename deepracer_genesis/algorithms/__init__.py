@@ -1,8 +1,1 @@
-"""Training algorithms: the Algorithm protocol and shipped implementations
-(PPO, PPO-Lagrangian). Select one by passing the class to `Algo(cls=...)`."""
-
-from .lagrangian import PIDLagrangian, PPOLagrangian
-from .ppo import PPO
-from .protocol import Algorithm
-
-__all__ = ["Algorithm", "PPO", "PPOLagrangian", "PIDLagrangian"]
+"""Algorithms: the built-in PPO runs via rsl-rl; custom classes plug in here."""

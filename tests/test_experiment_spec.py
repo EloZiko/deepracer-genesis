@@ -326,15 +326,17 @@ def test_rsl_backend_maps_spec_and_gates_dispatch():
     cam_cfg = spec_to_train_cfg(cam)
     assert cam_cfg["obs_groups"] == {"actor": ["camera"], "critic": ["camera", "state"]}
 
-    # cost / frozen-CNN / action-DR still route to the TorchRL Trainer
+    # action-DR is migrated (applied env-side, not a TorchRL transform)
     from deepracer_genesis.experiment import (DomainRandomizationActions,
                                               SafeRLFeatureEnvironment)
+    act_dr = (FeatureEnvironment(num_envs=8) >> VectorPolicy()
+              >> DomainRandomizationActions(steer_noise=0.1, delay_steps=2)).build()
+    assert rsl_supported(act_dr)
+
+    # cost / frozen-CNN still route to the TorchRL Trainer (their phases pending)
     cost = (SafeRLFeatureEnvironment(num_envs=8, budget=5.0)
             >> VectorPolicy()).build()
     assert not rsl_supported(cost)
-    act_dr = (FeatureEnvironment(num_envs=8) >> VectorPolicy()
-              >> DomainRandomizationActions(steer_noise=0.1)).build()
-    assert not rsl_supported(act_dr)
 
 
 def test_track_width_dr_routes_and_defaults_off():

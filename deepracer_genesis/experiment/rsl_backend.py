@@ -1,18 +1,6 @@
 """rsl-rl execution backend for the experiment API (migration off TorchRL).
 
-Drives ``DeepRacerEnv`` (already a VecEnv) through rsl-rl's ``OnPolicyRunner``,
-whose preallocated rollout storage has no per-step tensordict churn — so it does
-not provoke the quadrants async-alloc CUDA crash that the TorchRL collector does
-(see CUDA_ASYNC_CRASH_ROOTCAUSE.md: rsl_rl-contract 0/78 vs TorchRL 2/6).
-
-``OnPolicyRunner.learn`` is a closed loop, so we run it in **chunks** and do the
-experiment framework's periodic eval / ``on_eval`` (HPO prune) / EvalRecord
-around the chunks — preserving the Trainer's outer-loop features.
-
-Phase 0 scope: symmetric, continuous-action, feature-vector PPO (physics DR ok).
-Camera / asymmetric / cost / encoder / action-DR route to the TorchRL Trainer
-until their phases land (see MIGRATION_TORCHRL_TO_RSLRL.md). ``rsl_supported``
-gates the dispatch.
+Preallocated rollout storage avoids the crash; see MIGRATION_TORCHRL_TO_RSLRL.md.
 """
 
 from __future__ import annotations
@@ -42,27 +30,56 @@ _PPO_KEY_MAP = {
 
 
 def rsl_supported(spec: "ExperimentSpec") -> bool:
-    """True when this spec is in the migrated (rsl-rl backend) scope.
+    """True when spec is in the migrated (rsl-rl) scope.
 
-    Migrated: feature + camera PPO, symmetric or asymmetric (obs_groups is native
-    to rsl-rl), continuous actions, physics DR (applied in the env, backend-
-    agnostic). Still on the TorchRL Trainer until their phases: cost/Lagrangian,
-    frozen-CNN encoder, action/image DR, discrete actions.
+    Excludes cost/Lagrangian, frozen-CNN, and discrete actions (their phases).
+
+    Args:
+        spec: The validated experiment spec.
+
+    Returns:
+        Whether ``run()`` should dispatch this spec to the rsl-rl backend.
     """
+    # feature/camera PPO, symmetric or asymmetric (obs_groups is native), physics
+    # + action/image DR (env-side); everything else stays on the TorchRL Trainer.
     e, p = spec.env, spec.policy
     return (
         e.modality in ("feature", "camera")
         and not e.emits_cost
         and spec.encoder.kind == "none"
-        and not spec.obs_dr.image_aug
-        and not (spec.action_dr.delay_steps or spec.action_dr.steer_noise
-                 or spec.action_dr.speed_noise)
         and p.actions is None                       # continuous only
     )
 
 
+def _dr_extra_cfg(spec: "ExperimentSpec") -> dict:
+    """Env-side action/image DR pulled from the spec into the sim cfg.
+
+    Args:
+        spec: The validated experiment spec.
+
+    Returns:
+        A cfg fragment with ``action_dr`` and/or ``image_aug`` (empty if none).
+    """
+    extra: dict = {}
+    ad = spec.action_dr
+    if ad.delay_steps or ad.steer_noise or ad.speed_noise:
+        extra["action_dr"] = {"steer_noise": ad.steer_noise,
+                              "speed_noise": ad.speed_noise,
+                              "delay_steps": ad.delay_steps}
+    if spec.obs_dr.image_aug:
+        extra["image_aug"] = dict(spec.obs_dr.image_aug)
+    return extra
+
+
 def spec_to_train_cfg(spec: "ExperimentSpec") -> dict:
-    """Translate an ExperimentSpec into an rsl-rl ``OnPolicyRunner`` train cfg."""
+    """Translate an ExperimentSpec into an rsl-rl OnPolicyRunner train cfg.
+
+    Args:
+        spec: The validated experiment spec.
+
+    Returns:
+        The rsl-rl train config (obs_groups, actor/critic nets, PPO algorithm).
+    """
     from ..configs.cfgs import get_train_cfg
 
     vision = spec.env.modality == "camera"
@@ -92,36 +109,57 @@ def spec_to_train_cfg(spec: "ExperimentSpec") -> dict:
 
 
 class _RslActor:
-    """Adapt an rsl-rl inference policy to the evaluator's ``actor(td)`` call."""
+    """Adapt an rsl-rl inference policy to the evaluator's ``actor(td)`` call.
+
+    Attributes:
+        policy: rsl-rl inference policy mapping an obs TensorDict to actions.
+    """
 
     def __init__(self, policy):
-        self._policy = policy
+        self.policy = policy
 
     def __call__(self, td):
-        td.set("action", self._policy(td))
+        td.set("action", self.policy(td))
         return td
 
 
 def _eval(sim, policy):
-    # rsl-rl collection runs under torch.inference_mode(), which taints the sim's
-    # mutable buffers as inference tensors; the eval rollout must therefore also
-    # run inside inference_mode to be allowed to update them in place.
+    """Run the eval rollout under inference_mode (rsl-rl taints sim buffers).
+
+    Args:
+        sim: The DeepRacer sim to roll out.
+        policy: The rsl-rl inference policy.
+
+    Returns:
+        The aggregated eval metrics.
+    """
+    # rsl-rl collection runs under torch.inference_mode(), marking the sim's
+    # mutable buffers as inference tensors; eval must too, to update them in place.
     with torch.inference_mode():
         return evaluate_policy(sim, _RslActor(policy))
 
 
 def run_rsl(spec: "ExperimentSpec", root: str = "runs", on_eval=None) -> EvalRecord:
-    """Train ``spec`` via rsl-rl's OnPolicyRunner, returning an EvalRecord.
+    """Train spec via OnPolicyRunner, returning an EvalRecord.
 
-    Runs ``learn`` in eval-cadence chunks so periodic eval + ``on_eval`` fire
-    around rsl-rl's closed loop (parity with the TorchRL Trainer's outer loop).
+    Runs learn() in eval-cadence chunks so periodic eval + on_eval survive.
+
+    Args:
+        spec: The validated experiment spec.
+        root: Runs directory under which the run dir is created.
+        on_eval: Callback ``on_eval(frames, metrics)`` after each periodic eval;
+            raise inside it to stop the run (HPO pruning).
+
+    Returns:
+        The trained run's EvalRecord.
     """
     from rsl_rl.runners import OnPolicyRunner
 
     from .builder import Builder
 
     assert spec.env is not None and spec.algorithm is not None
-    sim = Builder(spec).sim()                 # reuses all sim_cfg logic (incl. DR)
+    # reuse all sim_cfg logic (incl. physics DR); inject env-side action/image DR
+    sim = Builder(spec).sim(extra_cfg=_dr_extra_cfg(spec) or None)
     device = str(sim.device)
     run_dir = spec.run_dir(root)
     os.makedirs(run_dir, exist_ok=True)
@@ -161,14 +199,37 @@ def run_rsl(spec: "ExperimentSpec", root: str = "runs", on_eval=None) -> EvalRec
     except Exception:            # noqa: BLE001 - never lose the run over a save
         ckpt = ""
 
+    # Part N.3: out-of-loop per-track holdout eval (opt-in: real_tracks set).
+    # Guarded so a finished run is never lost if a scene can't rebuild in-process.
+    holdout = {}
+    if spec.eval.real_tracks:
+        try:
+            from .evaluator import build_single_track_sim, evaluate_on_tracks
+            with torch.inference_mode():
+                holdout = evaluate_on_tracks(
+                    _RslActor(policy), spec.eval.real_tracks,
+                    sim_factory=lambda t: build_single_track_sim(
+                        spec, t, spec.eval.eval_num_envs))
+        except Exception as e:   # noqa: BLE001
+            print(f"[rsl] holdout eval skipped ({type(e).__name__}: {e})")
+
     record = EvalRecord(
         spec_id=spec.id(), spec=spec.to_dict(), seed=spec.seed,
         ablation_group=spec.ablation_group, variant=spec.variant,
-        metrics=metrics, eval_history=eval_history, holdout={},
+        metrics=metrics, eval_history=eval_history, holdout=holdout,
         train={"wall_clock_s": round(wall, 1),
                "total_env_steps": done_iters * per_iter,
                "steps_per_s": round(done_iters * per_iter / max(wall, 1e-9), 1),
                "checkpoint": ckpt, "backend": "rsl_rl"},
     )
     record.save(run_dir)
+
+    # Part N.4: eval charts (opt-in via EvalConfig.charts; matplotlib optional).
+    if spec.eval.charts:
+        try:
+            from .charts import render_charts
+            render_charts(record, run_dir)
+        except ImportError:
+            pass
+    print(f"[rsl] done: {run_dir}  completion={metrics.get('completion_rate', 0):.2f}")
     return record

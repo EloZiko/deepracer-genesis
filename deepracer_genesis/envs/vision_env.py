@@ -35,9 +35,12 @@ class VisionDeepRacerEnv(DeepRacerEnv):
     def _observe_camera(self) -> None:
         """Refresh the camera buffers from the renderer for the current state.
 
-        Stores full-resolution and policy-resolution frames into the buffers.
+        Applies image-space DR to the observed frame; image_buf stays un-augmented.
         """
         self.image_buf, self.obs_image_buf = self.renderer.render(self)
+        if self.image_aug:
+            from ..randomization.image_aug import apply_image_aug
+            self.obs_image_buf = apply_image_aug(self.obs_image_buf, self.image_aug)
 
     def _obs_groups(self) -> dict:
         """Assemble the observation groups, adding the ``camera`` frame.

@@ -606,9 +606,9 @@ class PPOLagrangian(PPO):
     lambda_init: float = 0.0
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
-        from ..algorithms import PPOLagrangian as _PPOLagrangianAlgo
+        # cls left None: cost/safe-RL is gated at run() pending an rsl-rl Lagrangian
         return replace(spec, algorithm=AlgorithmSpec(
-            cls=_PPOLagrangianAlgo, ppo=self._ppo_dict(),
+            cls=None, ppo=self._ppo_dict(),
             lagrangian={
                 "budget": self.budget, "pid": tuple(self.pid),
                 "cost_gae_lambda": self.cost_gae_lambda,
@@ -671,8 +671,8 @@ def _infer_algorithm(spec: ExperimentSpec) -> ExperimentSpec:
     env = spec.env
     if spec.algorithm is None:
         if env is not None and env.emits_cost:
-            from ..algorithms import PPOLagrangian as _PPOLagrangianAlgo
-            algo = AlgorithmSpec(cls=_PPOLagrangianAlgo, ppo=dict(DEFAULT_PPO),
+            # cls None: cost/safe-RL is gated at run() pending an rsl-rl Lagrangian
+            algo = AlgorithmSpec(cls=None, ppo=dict(DEFAULT_PPO),
                                  lagrangian={
                                      "budget": env.cost_budget,
                                      "pid": DEFAULT_PID,

@@ -48,8 +48,7 @@ def collect_camera_dataset(
     """
     from ..configs.cfgs import get_env_cfg
     from ..envs import DeepRacerEnv
-    from .builder import _ensure_genesis
-    from .transforms import ImageAug
+    from ..experiment.builder import _ensure_genesis
 
     _ensure_genesis()
     cfg = get_env_cfg(vision=True, track=track)
@@ -58,7 +57,7 @@ def collect_camera_dataset(
         cfg["vision"]["vision_renderer"] = "nyx"
     sim = DeepRacerEnv(num_envs=num_envs, env_cfg=cfg)
     trk = sim.track.tracks[0]
-    aug = ImageAug(image_aug) if image_aug else None
+    aug = dict(image_aug) if image_aug else None
 
     # the full pose grid, chunked into batches of num_envs
     grid = list(itertools.product(
@@ -108,7 +107,8 @@ def collect_camera_dataset(
 
             img = sim.image_buf[:n]
             if aug is not None:
-                img = aug._apply_transform(img)
+                from ..randomization.image_aug import apply_image_aug
+                img = apply_image_aug(img, aug)
             images.append((img.permute(0, 2, 3, 1) * 255)
                           .byte().cpu().numpy())
             states.append(sim.state_buf[:n].cpu().numpy())

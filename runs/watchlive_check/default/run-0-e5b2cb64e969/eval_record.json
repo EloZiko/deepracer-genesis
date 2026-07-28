@@ -1,0 +1,154 @@
+{
+  "spec_id": "e5b2cb64e969",
+  "spec": {
+    "env": {
+      "modality": "feature",
+      "render": "none",
+      "backend": "gpu",
+      "view": "none",
+      "resolution": [
+        160,
+        120
+      ],
+      "fov": 90.0,
+      "lookahead_k": 10,
+      "feature_set": null,
+      "feature_params": {},
+      "tracks": [
+        "reinvent_base"
+      ],
+      "num_envs": 16,
+      "random_start": true,
+      "random_direction": false,
+      "reward": null,
+      "reward_scales": {},
+      "emits_cost": false,
+      "cost_fn": null,
+      "cost_budget": null
+    },
+    "obs_dr": {
+      "image_aug": {},
+      "camera_jitter": {},
+      "physics": {
+        "friction_range": [
+          0.6,
+          1.4
+        ],
+        "mass_shift_kg": 0.2,
+        "com_shift_m": 0.01,
+        "steer_kp_scale": [
+          0.8,
+          1.2
+        ],
+        "wheel_kv_scale": [
+          0.8,
+          1.2
+        ],
+        "armature_range": [
+          0.0,
+          0.01
+        ],
+        "track_width_scale": [
+          1.0,
+          1.0
+        ]
+      },
+      "appearance": {}
+    },
+    "encoder": {
+      "kind": "none",
+      "checkpoint": null,
+      "output_dim": null,
+      "layer": null,
+      "out_key": "encoded"
+    },
+    "policy": {
+      "actor_keys": [
+        "state"
+      ],
+      "critic_keys": [
+        "state"
+      ],
+      "cnn": null,
+      "mlp": {
+        "hidden": [
+          256,
+          128,
+          64
+        ],
+        "activation": "elu"
+      },
+      "actions": null
+    },
+    "action_dr": {
+      "steer_noise": 0.0,
+      "speed_noise": 0.0,
+      "delay_steps": 0
+    },
+    "algorithm": {
+      "cls": null,
+      "ppo": {
+        "clip": 0.2,
+        "epochs": 5,
+        "minibatches": 4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "lr": 0.0003,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0,
+        "horizon": 24
+      },
+      "lagrangian": {},
+      "params": {}
+    },
+    "eval": {
+      "real_tracks": [
+        "reinvent_base"
+      ],
+      "eval_num_envs": 32,
+      "eval_episodes": null,
+      "charts": true
+    },
+    "total_env_steps": 30000,
+    "eval_every_steps": 0,
+    "seed": 0,
+    "ablation_group": null,
+    "variant": null
+  },
+  "seed": 0,
+  "ablation_group": null,
+  "variant": null,
+  "metrics": {
+    "episodes": 82,
+    "mean_return": 140.37240600585938,
+    "mean_progress_m": 14.142937660217285,
+    "mean_episode_s": 5.949267864227295,
+    "completion_rate": 0.32926827669143677,
+    "mean_laps": 0.7986226677894592,
+    "offtrack_rate": 0.9999999403953552,
+    "lap_time_s": 6.975127220153809,
+    "mean_speed_mps": 2.184647560119629
+  },
+  "train": {
+    "wall_clock_s": 17.2,
+    "total_env_steps": 29952,
+    "steps_per_s": 1738.6,
+    "checkpoint": "runs/watchlive_check/default/run-0-e5b2cb64e969/model.pt",
+    "backend": "rsl_rl"
+  },
+  "eval_history": [],
+  "holdout": {
+    "reinvent_base": {
+      "episodes": 158,
+      "mean_return": 149.61256408691406,
+      "mean_progress_m": 15.005884170532227,
+      "mean_episode_s": 6.167721271514893,
+      "completion_rate": 0.3544303774833679,
+      "mean_laps": 0.8473515510559082,
+      "offtrack_rate": 0.9936709403991699,
+      "lap_time_s": 6.881175994873047,
+      "mean_speed_mps": 2.2235236167907715
+    }
+  },
+  "created_at": "2026-07-28T10:24:41"
+}

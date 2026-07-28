@@ -99,13 +99,17 @@ class Track:
 
 
 def grid_offsets(n_variants, spacing, device):
-    """World-XY translation per variant on a near-square grid (Part O tiling).
+    """World-XY offset per variant on a near-square grid (Part O tiling).
 
-    Returns a ``(n_variants, 2)`` tensor. With ``spacing <= 0`` (the default,
-    no tiling) every offset is zero, so all variants sit superimposed at the
-    origin exactly as before. With a positive spacing the variants are laid out
-    on a ``ceil(sqrt(V))``-column grid so that, spaced beyond camera reach, each
-    env's car sees only its home tile.
+    Zero/degenerate spacing yields all-zero offsets (no tiling).
+
+    Args:
+        n_variants: Number of track variants.
+        spacing: Metres between tiles; <=0 disables tiling.
+        device: Torch device for the returned tensor.
+
+    Returns:
+        A ``(n_variants, 2)`` tensor of per-variant world-XY offsets.
     """
     if spacing <= 0 or n_variants <= 1:
         return torch.zeros(n_variants, 2, device=device)

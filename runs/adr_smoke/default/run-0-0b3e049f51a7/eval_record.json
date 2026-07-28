@@ -1,0 +1,117 @@
+{
+  "spec_id": "0b3e049f51a7",
+  "spec": {
+    "env": {
+      "modality": "feature",
+      "render": "none",
+      "backend": "gpu",
+      "view": "none",
+      "resolution": [
+        160,
+        120
+      ],
+      "fov": 90.0,
+      "lookahead_k": 10,
+      "feature_set": null,
+      "feature_params": {},
+      "tracks": [
+        "reinvent_base"
+      ],
+      "num_envs": 8,
+      "random_start": true,
+      "random_direction": false,
+      "reward": null,
+      "reward_scales": {},
+      "emits_cost": false,
+      "cost_fn": null,
+      "cost_budget": null
+    },
+    "obs_dr": {
+      "image_aug": {},
+      "camera_jitter": {},
+      "physics": {},
+      "appearance": {}
+    },
+    "encoder": {
+      "kind": "none",
+      "checkpoint": null,
+      "output_dim": null,
+      "layer": null,
+      "out_key": "encoded"
+    },
+    "policy": {
+      "actor_keys": [
+        "state"
+      ],
+      "critic_keys": [
+        "state"
+      ],
+      "cnn": null,
+      "mlp": {
+        "hidden": [
+          256,
+          128,
+          64
+        ],
+        "activation": "elu"
+      },
+      "actions": null
+    },
+    "action_dr": {
+      "steer_noise": 0.05,
+      "speed_noise": 0.05,
+      "delay_steps": 2
+    },
+    "algorithm": {
+      "cls": null,
+      "ppo": {
+        "clip": 0.2,
+        "epochs": 5,
+        "minibatches": 4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "lr": 0.0003,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0,
+        "horizon": 24
+      },
+      "lagrangian": {},
+      "params": {}
+    },
+    "eval": {
+      "real_tracks": [],
+      "eval_num_envs": 64,
+      "eval_episodes": null,
+      "charts": true
+    },
+    "total_env_steps": 6000,
+    "eval_every_steps": 0,
+    "seed": 0,
+    "ablation_group": null,
+    "variant": null
+  },
+  "seed": 0,
+  "ablation_group": null,
+  "variant": null,
+  "metrics": {
+    "episodes": 63,
+    "mean_return": 60.36454772949219,
+    "mean_progress_m": 6.510671615600586,
+    "mean_episode_s": 4.294285774230957,
+    "completion_rate": 0.0,
+    "mean_laps": 0.3676443099975586,
+    "offtrack_rate": 1.0,
+    "lap_time_s": NaN,
+    "mean_speed_mps": 1.3989118337631226
+  },
+  "train": {
+    "wall_clock_s": 6.7,
+    "total_env_steps": 5952,
+    "steps_per_s": 885.1,
+    "checkpoint": "runs/adr_smoke/default/run-0-0b3e049f51a7/model.pt",
+    "backend": "rsl_rl"
+  },
+  "eval_history": [],
+  "holdout": {},
+  "created_at": "2026-07-28T10:10:06"
+}

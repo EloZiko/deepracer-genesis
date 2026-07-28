@@ -1,11 +1,7 @@
-"""Watch-it-live example: the interactive Genesis viewer on the CPU backend.
+"""Watch-it-live example: the interactive Genesis viewer on the GPU backend.
 
-Blends BOTH Part M features — ``backend="cpu"`` + ``view="gui"`` — plus physics
-DR and first-class eval (Part N). Watching a run is a small, debug-scale task,
-and the CPU backend is the right tool for it: it has no CUDA streams, so it is
-immune to the Genesis<->torch GPU stream race that the interactive viewer +
-physics DR can trigger on the GPU backend (use the GPU examples, without the
-viewer, for DR *training* throughput). Class-authoring style.
+GPU feature env + viewer + physics DR + holdout eval + charts, on the rsl-rl
+backend (which is immune to the TorchRL allocator crash; see the migration doc).
 """
 
 from deepracer_genesis.experiment import (
@@ -18,10 +14,10 @@ from deepracer_genesis.experiment import (
 
 
 class WatchLive(Experiment):
-    """CPU feature env + interactive viewer + physics DR + holdout eval + charts.
+    """GPU feature env + interactive viewer + physics DR + holdout eval + charts.
 
     Attributes:
-        num_envs: kept small — the viewer + CPU backend is a debug/watch path.
+        num_envs: kept small — the viewer is a debug/watch path.
     """
 
     num_envs = 16

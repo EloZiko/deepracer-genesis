@@ -83,11 +83,27 @@ def run(target, *, root: str = "runs", build_only: bool = False, on_eval=None,
     spec = build(target, **overrides)
     if build_only:
         return spec
-    # Migration: rsl-rl backend (preallocated storage, no CUDA async-alloc crash)
-    # for the migrated scope; TorchRL Trainer for the rest until its phase lands.
     from .rsl_backend import rsl_supported, run_rsl
-    if rsl_supported(spec):
-        return run_rsl(spec, root=root, on_eval=on_eval)
-    from .builder import Builder      # heavy imports live behind this line
-    from .trainer import Trainer
-    return Trainer(Builder(spec), root=root).fit(on_eval=on_eval)
+    if not rsl_supported(spec):
+        raise SpecError(_unsupported_reason(spec))
+    return run_rsl(spec, root=root, on_eval=on_eval)
+
+
+def _unsupported_reason(spec: ExperimentSpec) -> str:
+    """Explain why a spec has no backend after the TorchRL removal.
+
+    Args:
+        spec: The validated experiment spec.
+
+    Returns:
+        A message naming the feature that still needs an rsl-rl implementation.
+    """
+    if spec.env.emits_cost:
+        return ("cost / safe-RL (PPO-Lagrangian) is not yet on the rsl-rl backend "
+                "(the TorchRL path was removed); add an rsl-rl Lagrangian algorithm")
+    if spec.encoder.kind != "none":
+        return "frozen-CNN encoder transfer is not yet on the rsl-rl backend"
+    if spec.policy.actions is not None:
+        return ("discrete action tables are not yet on the rsl-rl backend "
+                "(rsl-rl policies are continuous Gaussian)")
+    return "this spec is not supported by the rsl-rl backend"

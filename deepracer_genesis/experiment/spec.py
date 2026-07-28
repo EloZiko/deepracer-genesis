@@ -10,7 +10,6 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Literal, Optional
 
 if TYPE_CHECKING:
-    from ..algorithms import Algorithm
     from ..envs.features import FeatureSet
     from ..envs.rewards import RewardFn
 
@@ -162,31 +161,29 @@ class ActionDRSpec:
 
 @dataclass(frozen=True)
 class AlgorithmSpec:
-    """Training-algorithm slice; `cls` is the Algorithm class the Trainer
-    instantiates and `setup()`s (passed directly — no registry).
+    """Training-algorithm slice; `cls` is a custom algorithm class or None.
 
     Attributes:
-        cls: the Algorithm class to run, or None for the built-in PPO default.
+        cls: a custom algorithm class, or None for the built-in rsl-rl PPO.
         ppo: PPO hyperparameters.
         lagrangian: Lagrangian settings (budget, PID gains, ...).
         params: free-form parameters for custom algorithm classes.
     """
 
-    cls: "type[Algorithm] | None" = None   # None => built-in PPO
+    cls: "type | None" = None   # None => built-in rsl-rl PPO
     ppo: dict = field(default_factory=dict)
     lagrangian: dict = field(default_factory=dict)  # budget, pid=(kp,ki,kd), ...
     params: dict = field(default_factory=dict)      # free-form for custom classes
 
     @property
-    def resolved_cls(self) -> "type[Algorithm]":
-        """The concrete Algorithm class to instantiate (None -> PPO)."""
-        from ..algorithms import PPO
-        return self.cls if self.cls is not None else PPO
+    def resolved_cls(self):
+        """The custom Algorithm class, or None for the default rsl-rl PPO."""
+        return self.cls
 
     @property
     def requires_cost(self) -> bool:
-        """Whether the selected algorithm consumes a cost signal (safe-RL)."""
-        return bool(getattr(self.resolved_cls, "requires_cost", False))
+        """Whether this is a cost/safe-RL algorithm (has a Lagrangian budget)."""
+        return bool(self.lagrangian)
 
 
 @dataclass(frozen=True)
@@ -438,11 +435,11 @@ class ExperimentSpec:
             if not env.emits_cost:
                 raise SpecError(
                     "%s requires a SafeRL* env that emits a cost signal"
-                    % algo.resolved_cls.__name__)
+                    % "PPO-Lagrangian")
             if not algo.lagrangian.get("budget"):
                 raise SpecError(
                     "%s needs a budget (explicit or from the env stage)"
-                    % algo.resolved_cls.__name__)
+                    % "PPO-Lagrangian")
             if (env.cost_budget is not None
                     and algo.lagrangian.get("budget") not in (None, env.cost_budget)):
                 raise SpecError(
@@ -453,5 +450,5 @@ class ExperimentSpec:
             warnings.warn(
                 "cost-emitting env trained with a reward-only algorithm (%s): the "
                 "cost stream is collected but unconstrained (was this intentional?)"
-                % algo.resolved_cls.__name__,
+                % "PPO-Lagrangian",
                 stacklevel=2)

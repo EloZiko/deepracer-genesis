@@ -20,13 +20,23 @@ _CONTROLLER = CenterlineFollower()
 _SPECTATOR = {"spectator": True, "spectator_res": (1280, 960)}
 
 
-def _load_actor(builder, ckpt_path: str):
-    """Builder-shaped actor with checkpointed weights."""
-    actor = builder.actor()
-    payload = torch.load(ckpt_path, map_location=builder.sim().device,
-                         weights_only=False)
-    actor.load_state_dict(payload["actor"])
-    return actor
+def _rsl_actor(spec, ckpt_path: str, sim):
+    """Load the trained rsl-rl policy as an evaluator-shaped ``actor(td)``.
+
+    Args:
+        spec: The (nominal-conditions) experiment spec.
+        ckpt_path: Path to the rsl-rl checkpoint (model.pt).
+        sim: The built sim the policy will drive.
+
+    Returns:
+        A callable that sets ``td["action"]`` from the inference policy.
+    """
+    from rsl_rl.runners import OnPolicyRunner
+
+    from .rsl_backend import _RslActor, spec_to_train_cfg
+    runner = OnPolicyRunner(sim, spec_to_train_cfg(spec), None, device=str(sim.device))
+    runner.load(ckpt_path)
+    return _RslActor(runner.get_inference_policy(device=str(sim.device)))
 
 
 def rollout_video(target, *, root: str = "runs", ckpt: Optional[str] = None,
@@ -66,7 +76,7 @@ def rollout_video(target, *, root: str = "runs", ckpt: Optional[str] = None,
 
     spec: ExperimentSpec = build(target, **overrides)
     run_dir = spec.run_dir(root)
-    ckpt = ckpt or os.path.join(run_dir, "best.pt")
+    ckpt = ckpt or os.path.join(run_dir, "model.pt")
     if not os.path.exists(ckpt):
         raise FileNotFoundError(
             f"no checkpoint at {ckpt} — train the experiment first "
@@ -83,18 +93,11 @@ def rollout_video(target, *, root: str = "runs", ckpt: Optional[str] = None,
 
     b = Builder(eval_spec)
     sim = b.sim(extra_cfg={"spectator": True, "spectator_res": tuple(spectator_res)})
-    actor = _load_actor(b, ckpt)
-    obs_transform = None
-    if eval_spec.encoder.kind == "frozen_cnn":
-        encoder, _ = b.encoder_module()
-        key = eval_spec.encoder.out_key
-        obs_transform = lambda td: td.set(key, encoder(td["camera"]))  # noqa: E731
+    actor = _rsl_actor(eval_spec, ckpt, sim)
 
     out_dir = out or os.path.join(run_dir, "videos")
     os.makedirs(out_dir, exist_ok=True)
     suffix = track or eval_spec.env.tracks[0]
-
-    from torchrl.envs.utils import ExplorationType, set_exploration_type
 
     n = sim.num_envs
     sim.reset_idx(torch.arange(n, device=sim.device))
@@ -102,11 +105,9 @@ def rollout_video(target, *, root: str = "runs", ckpt: Optional[str] = None,
 
     spectator_frames, onboard_frames = [], []
     streams = {k: [] for k in ("reward", "done", "progress_delta", "offtrack")}
-    with set_exploration_type(ExplorationType.DETERMINISTIC), torch.no_grad():
+    with torch.no_grad():
         for _ in range(steps):
             td = sim.get_observations().clone()
-            if obs_transform is not None:
-                td = obs_transform(td)
             td = actor(td)
             _, rew, dones, _ = sim.step(td["action"])
             info = sim.step_info
@@ -158,7 +159,7 @@ def dr_preview_video(target="cam_baseline", *, steps: int = 300,
     import numpy as np
 
     from .builder import Builder
-    from .transforms import ImageAug
+    from ..randomization.image_aug import apply_image_aug
 
     spec = build(target, **overrides)
     if spec.env.modality != "camera" or not spec.obs_dr.image_aug:
@@ -168,7 +169,7 @@ def dr_preview_video(target="cam_baseline", *, steps: int = 300,
 
     b = Builder(spec)
     sim = b.sim(extra_cfg=dict(_SPECTATOR))
-    aug = ImageAug(spec.obs_dr.image_aug)
+    aug = dict(spec.obs_dr.image_aug)
 
     os.makedirs(out, exist_ok=True)
     paired, spectator = [], []
@@ -176,7 +177,7 @@ def dr_preview_video(target="cam_baseline", *, steps: int = 300,
         for _ in range(steps):
             sim.step(_CONTROLLER.act(sim))
             raw = sim.image_buf[0]                       # (3, H, W) in [0,1]
-            seen = aug._apply_transform(sim.image_buf)[0]
+            seen = apply_image_aug(sim.image_buf, aug)[0]
             frame = torch.cat([raw, seen], dim=2)        # side by side
             paired.append((frame.permute(1, 2, 0) * 255).byte().cpu().numpy())
             spectator.append(sim.render_spectator())
