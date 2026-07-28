@@ -27,7 +27,11 @@ def test_examples_blend_the_axes():
     backends = {s.env.backend for s in specs}
     modalities = {s.env.modality for s in specs}
     renders = {s.env.render for s in specs}
-    algos = {s.algorithm.resolved_cls.__name__ for s in specs}
+    def _algo(s):
+        if s.algorithm.cls is not None:
+            return s.algorithm.cls.__name__
+        return "PPOLagrangian" if s.algorithm.lagrangian.get("budget") else "PPO"
+    algos = {_algo(s) for s in specs}
     views = {s.env.view for s in specs}
     assert {"cpu", "gpu"} <= backends
     assert {"feature", "camera"} <= modalities

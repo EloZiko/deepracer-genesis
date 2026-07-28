@@ -52,7 +52,10 @@ def spec_axes(spec: dict) -> dict:
     return {
         "modality": env["modality"],
         "render": env["render"],
-        "algorithm": spec["algorithm"]["cls"] or "PPO",   # cls name (None => PPO)
+        # cls name; None => PPO, unless a Lagrangian budget marks it PPO-Lagrangian
+        "algorithm": (spec["algorithm"]["cls"] or (
+            "PPOLagrangian" if spec["algorithm"].get("lagrangian", {}).get("budget")
+            else "PPO")),
         "asymmetry": ("asymmetric" if set(policy["critic_keys"]) != set(policy["actor_keys"])
                       else "symmetric"),
         "encoder": spec["encoder"]["kind"],

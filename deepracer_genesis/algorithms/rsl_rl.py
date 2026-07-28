@@ -1,6 +1,6 @@
-"""Legacy rsl-rl-lib integration (the pre-TorchRL training path).
+"""rsl-rl-lib integration: build an OnPolicyRunner over a DeepRacerEnv.
 
-Kept for reproducing early baselines; TorchRL is the maintained path.
+The maintained training backend (the experiment API dispatches here via run_rsl).
 """
 
 from __future__ import annotations

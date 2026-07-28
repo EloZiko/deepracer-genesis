@@ -247,6 +247,7 @@ def build_single_track_sim(spec, track: str, num_envs: int):
 
     cfg = Builder(spec).sim_cfg()
     cfg["sim"]["track"] = track
+    cfg["sim"]["view"] = "none"    # eval rollout needs no viewer (avoid a 2nd window)
     ensure_init(cfg["sim"].get("backend", "gpu"))
     return DeepRacerEnv(num_envs=num_envs, env_cfg=cfg)
 

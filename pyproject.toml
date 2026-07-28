@@ -9,7 +9,6 @@ dependencies = [
     "genesis-world>=1.2.3",
     "rsl-rl-lib>=5.4.0",
     "torch>=2.5",
-    "torchrl>=0.13",
     "tensordict>=0.7",
     "tensorboard",
     "pillow",

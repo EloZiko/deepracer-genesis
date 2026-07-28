@@ -3,7 +3,7 @@
 Each knob maps to its :class:`~deepracer_genesis.randomization.spaces.Space`
 (suggested default range), the layer it is *applied* at (definitions live in
 this folder; application stays where it must — physics before stepping, visual
-in the renderer, actuation/image as torchrl transforms), the ``cfg`` key it
+in the renderer, action/image DR env-side in the sim step), the ``cfg`` key it
 lands in, and the signal(s) it perturbs (the Part K vocabulary). DR, HPO, and
 the build-time observability check can all read this one table.
 
@@ -70,14 +70,14 @@ CATALOG: list[Knob] = [
          ("camera",), "+/- m mount position"),
     Knob("pixel_noise", FloatRange(0.0, 0.05), "visual", "vision.pixel_noise",
          ("camera",), "gaussian pixel noise scale"),
-    # ---- actuation (torchrl inverse-action transform) ----
+    # ---- actuation (env-side action DR in the sim step) ----
     Knob("steer_noise", FloatRange(0.0, 0.05), "actuation", "action_dr.steer_noise",
          ("actions",), "gaussian steering-command noise scale"),
     Knob("speed_noise", FloatRange(0.0, 0.05), "actuation", "action_dr.speed_noise",
          ("actions",), "gaussian speed-command noise scale"),
     Knob("delay_steps", IntRange(0, 3), "actuation", "action_dr.delay_steps",
          ("actions",), "command latency in steps"),
-    # ---- image (torchrl obs-space transform) ----
+    # ---- image (env-side image DR on the camera obs) ----
     Knob("brightness", FloatRange(0.7, 1.3), "image", "obs_dr.image_aug.brightness",
          ("camera",)),
     Knob("contrast", FloatRange(0.7, 1.3), "image", "obs_dr.image_aug.contrast",
