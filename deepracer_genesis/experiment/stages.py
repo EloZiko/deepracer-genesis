@@ -141,6 +141,9 @@ class FeatureEnvironment(Stage):
     Attributes:
         feature_set: FeatureSet subclass to assemble the state, or None for default.
         feature_params: Extra parameters for the chosen feature set.
+        obs_routing: Per-signal actor/critic routing (Part K.3), or None for a
+            single ``state`` vector. When set, ``{"base": (block names...),
+            "actor": sel, "critic": sel}`` emits ``obs_actor``/``obs_critic``.
         lookahead_k: Number of upcoming waypoints exposed to the agent.
         tracks: Track names to train on; more than one trains heterogeneously.
         num_envs: Parallel simulation instances.
@@ -151,6 +154,7 @@ class FeatureEnvironment(Stage):
 
     feature_set: "type[FeatureSet] | None" = None   # None -> ClassicFeatures
     feature_params: Optional[dict] = None
+    obs_routing: Optional[dict] = None              # Part K.3 (feature mode only)
     lookahead_k: int = 10
     tracks: tuple[str, ...] = ("reinvent_base",)   # >1 => heterogeneous per-env
     num_envs: int = 512
@@ -167,6 +171,7 @@ class FeatureEnvironment(Stage):
             modality="feature", render="none",
             feature_set=self.feature_set,
             feature_params=dict(self.feature_params or {}),
+            obs_routing=dict(self.obs_routing) if self.obs_routing is not None else None,
             lookahead_k=self.lookahead_k,
             tracks=tuple(self.tracks), num_envs=self.num_envs,
             random_start=self.random_start,
@@ -343,6 +348,7 @@ class DomainRandomizationCamera(Stage):
             against the documented Madrona R<->G swap).
         vignette: Max radial corner-darkening strength in [0, 1].
         distortion: Max |radial| barrel/pincushion coefficient (wide-angle lens).
+        crop: Max fraction croppable per frame, resized back (FOV/PP jitter).
         shot_noise: Brightness-dependent (sqrt-intensity) sensor noise scale.
         latency_steps: Camera pipeline delay in control steps (stateful; the
             policy sees the frame from this many steps ago).
@@ -364,6 +370,7 @@ class DomainRandomizationCamera(Stage):
     white_balance: float = 0.0     # per-channel gain magnitude
     vignette: float = 0.0          # max corner-darkening strength
     distortion: float = 0.0        # max |radial| barrel coefficient
+    crop: float = 0.0              # max crop fraction, resized back (FOV jitter)
     shot_noise: float = 0.0        # sqrt-intensity sensor noise scale
     latency_steps: int = 0         # camera pipeline delay in steps (stateful)
     frame_drop: float = 0.0        # prob of repeating the previous frame (stateful)
@@ -385,6 +392,7 @@ class DomainRandomizationCamera(Stage):
         if self.white_balance: aug["white_balance"] = self.white_balance
         if self.vignette:      aug["vignette"] = self.vignette
         if self.distortion:    aug["distortion"] = self.distortion
+        if self.crop:          aug["crop"] = self.crop
         if self.shot_noise:    aug["shot_noise"] = self.shot_noise
         if self.latency_steps: aug["latency_steps"] = self.latency_steps
         if self.frame_drop:    aug["frame_drop"] = self.frame_drop

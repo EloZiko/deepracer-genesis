@@ -34,11 +34,58 @@ def test_ensure_init_rejects_bad_backend():
         ensure_init("tpu")
 
 
-def test_camera_on_cpu_is_rejected_clearly():
-    with pytest.raises(SpecError, match="rasterizer ObsRenderer"):
-        (CameraEnvironment(backend="cpu")
-         >> AsymmetricCameraPolicy(actor_keys=("camera",),
-                                   critic_keys=("camera", "state"))).build()
+def _camera_cpu_spec(tracks=("reinvent_base",)):
+    return (CameraEnvironment(backend="cpu", tracks=tracks)
+            >> AsymmetricCameraPolicy(actor_keys=("camera",),
+                                      critic_keys=("camera", "state")))
+
+
+def test_camera_on_cpu_builds_with_slow_path_warning():
+    """Part M.2: camera+cpu is now supported via the per-env rasterizer — it
+    builds (no SpecError) and warns that it is the unbatched slow path."""
+    with warnings.catch_warnings(record=True) as w:
+        warnings.simplefilter("always")
+        spec = _camera_cpu_spec().build()
+        assert any("RasterizerObsRenderer" in str(x.message)
+                   and "slower" in str(x.message) for x in w)
+    assert spec.env.backend == "cpu" and spec.env.modality == "camera"
+
+
+def test_camera_on_cpu_multitrack_still_rejected():
+    """The per-env rasterizer renders a single track; multi-track camera needs
+    Madrona tiling on GPU, so camera+cpu+>1 track is a clear error."""
+    with pytest.raises(SpecError, match="single track"):
+        _camera_cpu_spec(tracks=("reinvent_base", "reInvent2019_track")).build()
+
+
+def test_builder_routes_camera_cpu_to_rasterizer():
+    from deepracer_genesis.experiment.builder import Builder
+    cpu = Builder(_camera_cpu_spec().build()).sim_cfg()
+    assert cpu["vision"]["vision_renderer"] == "rasterizer"
+    gpu = Builder((CameraEnvironment(backend="gpu")
+                   >> AsymmetricCameraPolicy(actor_keys=("camera",),
+                                             critic_keys=("camera", "state"))
+                   ).build()).sim_cfg()
+    assert gpu["vision"]["vision_renderer"] == "batch"
+
+
+def test_make_renderer_selects_rasterizer_on_cpu_flag():
+    import genesis as gs
+    from deepracer_genesis.envs.renderers import (
+        MadronaRenderer, NullRenderer, NyxRenderer, RasterizerObsRenderer,
+        make_renderer,
+    )
+    base = {"vision": True}
+    assert isinstance(make_renderer({**base, "vision_renderer": "rasterizer"}),
+                      RasterizerObsRenderer)
+    assert isinstance(make_renderer({**base, "vision_renderer": "batch"}), MadronaRenderer)
+    assert isinstance(make_renderer({**base, "vision_renderer": "nyx"}), NyxRenderer)
+    assert isinstance(make_renderer(base), MadronaRenderer)          # default
+    assert isinstance(make_renderer({"vision": False}), NullRenderer)
+    # the CPU strategy uses a plain Rasterizer scene renderer, not a BatchRenderer
+    r = RasterizerObsRenderer()
+    assert r.has_camera and r._scene_batch_renderer is False
+    assert isinstance(r.scene_renderer(), gs.renderers.Rasterizer)
 
 
 def test_gui_large_batch_warns_but_builds():

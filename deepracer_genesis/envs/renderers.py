@@ -79,17 +79,21 @@ def make_renderer(vision_cfg: dict) -> "Renderer":
 
     Args:
         vision_cfg: Env config; ``vision`` gates whether any camera renderer is
-            built, and ``vision_renderer`` (``"batch"`` default, or ``"nyx"``)
-            picks the vision backend.
+            built, and ``vision_renderer`` (``"batch"`` default, ``"nyx"``, or
+            ``"rasterizer"`` for the CPU per-env path) picks the vision backend.
 
     Returns:
         The renderer strategy matching the config: :class:`NullRenderer`,
-        :class:`NyxRenderer`, or :class:`MadronaRenderer`.
+        :class:`NyxRenderer`, :class:`RasterizerObsRenderer`, or
+        :class:`MadronaRenderer`.
     """
     if not vision_cfg["vision"]:
         return NullRenderer()
-    if vision_cfg.get("vision_renderer", "batch") == "nyx":
+    renderer = vision_cfg.get("vision_renderer", "batch")
+    if renderer == "nyx":
         return NyxRenderer()
+    if renderer == "rasterizer":
+        return RasterizerObsRenderer()
     return MadronaRenderer()
 
 
@@ -481,6 +485,117 @@ class MadronaRenderer(_CameraRenderer):
         assert self.top_cam is not None
         rgb = self.top_cam.render(rgb=True)[0]
         return rgb[..., [1, 0, 2]] if self.rg_swap else rgb
+
+
+class RasterizerObsRenderer(_CameraRenderer):
+    """Per-env CPU rasterizer camera obs — the backend=='cpu' vision path (M.2).
+
+    Madrona and Nyx are GPU-only, so on the CPU backend the policy camera is
+    rendered with the same ``gs.renderers.Rasterizer()`` that already backs the
+    spectator/top-down debug views. It holds ONE camera per env (``env_idx=i``)
+    and renders them in a Python loop, so it is unbatched and far slower than
+    Madrona — a debug / small-``num_envs`` / no-GPU path, not a throughput path.
+    Reuses ``_CameraRenderer``'s device-agnostic post-processing (world-color
+    remap, pixel noise, policy downscale) verbatim; only the frame source swaps.
+
+    Note:
+        ``randomize_mount`` (``camera_jitter`` DR) is a no-op on this path — the
+        per-env mount jitter is Madrona-only for now; image-space DR (distortion,
+        crop, photometric) still applies, since it is renderer-agnostic.
+
+    Attributes:
+        merge_fixed_links: Whether the scene may merge fixed links.
+        cams: One car-attached observation camera per env.
+        top_cams: One per-env top-down camera each, or None.
+        cam_offset_T: The base mount transform from camera_link to the camera.
+    """
+
+    merge_fixed_links = True
+    _scene_batch_renderer = False    # plain Rasterizer, not a BatchRenderer
+    _spectator_debug = False         # no batch pipeline, so no debug camera needed
+
+    def _build(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Add the directional light and one rasterizer camera per env.
+
+        Args:
+            env: The env being built; its ``scene`` receives the light and the
+                per-env cameras.
+            vision_cfg: Env config; reads ``light_intensity``, ``camera_res``
+                (W, H), ``camera_fov``, and ``topdown_camera``.
+        """
+        env.scene.add_light(pos=(0.0, 0.0, 10.0), dir=(0.4, 0.3, -1.0),
+                            directional=True, castshadow=False,
+                            intensity=float(vision_cfg.get("light_intensity", 6.0)))
+        res = vision_cfg["camera_res"]  # (W, H)
+        fov = vision_cfg["camera_fov"]
+        # non-batched renderer: each camera binds to one env (env_idx) and
+        # follows that env's camera_link when attached.
+        self.cams = [env.scene.add_camera(res=res, fov=fov, GUI=False, env_idx=i)
+                     for i in range(env.num_envs)]
+        self.top_cams = None
+        if vision_cfg.get("topdown_camera", False):
+            self.top_cams = []
+            for i, t in enumerate([env.track.tracks[int(v)]
+                                   for v in env.track.variant_idx]):
+                c, extent = _track_extent(t)
+                c = c.cpu().numpy()
+                self.top_cams.append(env.scene.add_camera(
+                    res=res, pos=(float(c[0]), float(c[1]), float(extent) * 1.2),
+                    lookat=(float(c[0]), float(c[1]), 0.0),
+                    up=(0.0, 1.0, 0.0), fov=60, GUI=False, env_idx=i))
+
+    def finalize(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
+        """Attach each per-env camera to its car's ``camera_link``.
+
+        Args:
+            env: The built env, providing the car link, ``num_envs``, and
+                ``device``.
+            vision_cfg: Env config; reads ``camera_pitch_deg`` (plus everything
+                the base :meth:`_CameraRenderer.finalize` consumes).
+        """
+        super().finalize(env, vision_cfg)
+        self.cam_offset_T = camera_offset_T(vision_cfg.get("camera_pitch_deg", 0.0))
+        link = env.car.get_link("camera_link")
+        for cam in self.cams:
+            cam.attach(link, self.cam_offset_T)
+
+    def _acquire_rgb(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Render each per-env camera in turn and stack the frames.
+
+        Args:
+            env: The env whose current frame is captured.
+
+        Returns:
+            An ``(N, H, W, 3)`` uint8 tensor of RGB pixels on ``env.device``.
+        """
+        frames = []
+        for cam in self.cams:
+            cam.move_to_attach()
+            rgb = np.asarray(cam.render(rgb=True)[0])
+            frames.append(torch.as_tensor(rgb.reshape(rgb.shape[-3:]),
+                                          device=env.device))
+        return torch.stack(frames, dim=0)
+
+    def topdown(self, env: "DeepRacerEnv") -> torch.Tensor:
+        """Render the per-env top-down view from each env's rasterizer camera.
+
+        Args:
+            env: The env to render from above.
+
+        Returns:
+            An ``(N, H, W, 3)`` batch of top-down RGB frames.
+
+        Raises:
+            AssertionError: If the top-down cameras were not enabled via
+                ``topdown_camera``.
+        """
+        assert self.top_cams is not None
+        frames = []
+        for cam in self.top_cams:
+            rgb = np.asarray(cam.render(rgb=True)[0])
+            frames.append(torch.as_tensor(rgb.reshape(rgb.shape[-3:]),
+                                          device=env.device))
+        return torch.stack(frames, dim=0)
 
 
 class NyxRenderer(_CameraRenderer):

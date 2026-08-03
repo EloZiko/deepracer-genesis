@@ -1,6 +1,10 @@
 """Swappable reward functions, written in plain torch and passed as parameters.
 
 Each fn maps the env to named per-step (N,) terms weighted by ``reward_scales``.
+
+Reward + cost as combinations over the shared signal vocabulary (Part K.4): a
+reward fn declares which :mod:`~deepracer_genesis.envs.signals` names it reads,
+so the build-time learnability check (K.5) can verify the critic can see them.
 """
 
 from __future__ import annotations
@@ -16,6 +20,53 @@ if TYPE_CHECKING:
 RewardFn = Callable[["DeepRacerEnv"], "dict[str, torch.Tensor]"]
 
 
+def reads(*signals: str) -> "Callable[[RewardFn], RewardFn]":
+    """Declare the signal names a reward fn reads (Part K.4).
+
+    Attaches a ``reads`` frozenset to the fn so the K.5 learnability check can
+    statically verify ``reward.reads ⊆ critic-visible signals``. Purely
+    declarative metadata — it does not change what the fn computes.
+
+    Args:
+        *signals: registered signal names (see :data:`envs.signals.SIGNALS`).
+
+    Returns:
+        A decorator that sets ``fn.reads`` and returns the fn unchanged.
+    """
+    frozen = frozenset(signals)
+
+    def decorate(fn: "RewardFn") -> "RewardFn":
+        fn.reads = frozen  # type: ignore[attr-defined]
+        return fn
+
+    return decorate
+
+
+def reward_reads(fn: "RewardFn") -> "frozenset[str]":
+    """Return the signal names ``fn`` declared it reads (empty if undeclared).
+
+    An undeclared custom reward returns ``frozenset()``, which the K.5 check
+    treats as "nothing to verify" (no false-positive warnings).
+    """
+    return getattr(fn, "reads", frozenset())
+
+
+#: signal names each cost fn reads (Part K.4; ``cost_fn`` name -> reads). The
+#: env's default cost is the plain ``offtrack`` term (see mdp.check_termination).
+COST_READS: "dict[str, frozenset[str]]" = {
+    "offtrack": frozenset({"off_track", "up_z"}),
+    "offtrack_or_overspeed": frozenset({"off_track", "up_z", "v_forward"}),
+    "crash": frozenset({"off_track", "up_z"}),
+}
+
+
+def cost_reads(cost_fn: "str | None") -> "frozenset[str]":
+    """Return the signal names the named cost fn reads (empty if none/unknown)."""
+    return COST_READS.get(cost_fn or "", frozenset())
+
+
+@reads("d_progress", "v_forward", "lateral", "half_width", "heading_err",
+       "actions", "action_rate", "off_track")
 def deepracer(env: "DeepRacerEnv") -> dict[str, torch.Tensor]:
     """Compute the built-in DeepRacer shaping: progress-dominated with stability.
 
@@ -29,6 +80,11 @@ def deepracer(env: "DeepRacerEnv") -> dict[str, torch.Tensor]:
         A mapping from term name to its (N,) per-car reward tensor: progress,
         speed, centered, heading, steering, action_rate, and off_track. The
         weighted sum under the spec's ``reward_scales`` is the step reward.
+
+    Note:
+        Declares ``reads`` = {d_progress, v_forward, lateral, half_width,
+        heading_err, actions, action_rate, off_track} (Part K.4) so the K.5
+        build-time check can verify these signals are critic-visible.
     """
     on_track = env.lateral.abs() < (env.half_width - env.cfg["termination"]["wheel_margin"])
     return {

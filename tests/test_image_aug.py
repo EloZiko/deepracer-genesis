@@ -66,11 +66,25 @@ def test_shot_noise_perturbs_and_clamps():
     assert not torch.allclose(out, img)
 
 
+def test_crop_preserves_shape_and_range():
+    img = torch.rand(4, 3, 16, 24)
+    out = apply_image_aug(img, {"crop": 0.2})
+    assert out.shape == img.shape and torch.isfinite(out).all()
+    assert out.min() >= 0.0 and out.max() <= 1.0
+
+
+def test_crop_zero_is_identity():
+    img = torch.rand(4, 3, 16, 16)
+    # crop=0 is falsy -> skipped entirely
+    assert torch.equal(apply_image_aug(img, {"crop": 0.0}), img)
+
+
 def test_full_photometric_stack_is_valid():
     img = torch.rand(2, 4, 3, 24, 32)  # extra leading batch dim
     out = apply_image_aug(img, {
-        "distortion": 0.15, "brightness": (0.8, 1.2), "gamma": (0.7, 1.4),
-        "white_balance": 0.1, "vignette": 0.3, "shot_noise": 0.03,
+        "distortion": 0.15, "crop": 0.1, "brightness": (0.8, 1.2),
+        "gamma": (0.7, 1.4), "white_balance": 0.1, "vignette": 0.3,
+        "shot_noise": 0.03,
     })
     assert out.shape == img.shape and torch.isfinite(out).all()
     assert out.min() >= 0.0 and out.max() <= 1.0

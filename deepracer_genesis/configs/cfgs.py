@@ -59,6 +59,7 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "obs_noise": 0.0,
             "feature_set": None,        # a FeatureSet subclass, or None -> ClassicFeatures
             "feature_params": {},
+            "obs_routing": None,        # Part K.3 per-signal actor/critic routing (None = single "state")
         },
         "vision": {
             "vision": vision,
@@ -70,7 +71,7 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "spectator": False,         # high-res rasterizer cam, all cars in one view
             "spectator_res": (1280, 960),
             "madrona_rg_swap": False,   # see env: only alpha-cutout textures are swapped
-            "vision_renderer": "batch",  # "batch" (Madrona) | "nyx" (path tracer)
+            "vision_renderer": "batch",  # "batch" (Madrona GPU) | "nyx" (path tracer GPU) | "rasterizer" (per-env CPU)
             "nyx_mode": "Forward",      # "Forward" | "FastPathTracer" | "RefPathTracer"
             "nyx_spp": 4,
             "nyx_light_intensity": 3.0,
@@ -79,6 +80,7 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "background_color": (0.55, 0.72, 0.9),
             "field_color": (0.30, 0.48, 0.32),
             "appearance": {},           # {"world_color": strength} for the color remap
+            "env_map": {},              # Part P.1 Nyx per-env sky DR (tint/multiplier ranges)
         },
         "reward": {
             "reward": None,             # a reward callable, or None -> deepracer default

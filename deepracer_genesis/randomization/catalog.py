@@ -70,6 +70,10 @@ CATALOG: list[Knob] = [
          ("camera",), "+/- m mount position"),
     Knob("pixel_noise", FloatRange(0.0, 0.05), "visual", "vision.pixel_noise",
          ("camera",), "gaussian pixel noise scale"),
+    Knob("env_map_tint", FloatRange(0.35, 0.75), "visual", "vision.env_map.tint",
+         ("camera",), "per-env HDRI sky tint (Nyx; baked at build -> per-env-fixed)"),
+    Knob("env_map_multiplier", FloatRange(0.5, 2.0), "visual", "vision.env_map.multiplier",
+         ("camera",), "per-env sky exposure multiplier (Nyx; per-run)"),
     # ---- actuation (env-side action DR in the sim step) ----
     Knob("steer_noise", FloatRange(0.0, 0.05), "actuation", "action_dr.steer_noise",
          ("actions",), "gaussian steering-command noise scale"),
@@ -97,6 +101,8 @@ CATALOG: list[Knob] = [
          ("camera",), "max radial corner darkening"),
     Knob("distortion", SymRange(0.15), "image", "obs_dr.image_aug.distortion",
          ("camera",), "wide-angle barrel/pincushion coefficient"),
+    Knob("crop", FloatRange(0.0, 0.2), "image", "obs_dr.image_aug.crop",
+         ("camera",), "max crop fraction, resized back (FOV / principal-point jitter)"),
     Knob("shot_noise", FloatRange(0.0, 0.05), "image", "obs_dr.image_aug.shot_noise",
          ("camera",), "brightness-dependent (sqrt-intensity) sensor noise"),
     # ---- image: temporal (stateful, applied env-side once per step) ----

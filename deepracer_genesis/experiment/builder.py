@@ -55,6 +55,8 @@ class Builder:
         cfg["obs"]["lookahead_k"] = env.lookahead_k
         cfg["obs"]["feature_set"] = env.feature_set
         cfg["obs"]["feature_params"] = dict(env.feature_params)
+        cfg["obs"]["obs_routing"] = (dict(env.obs_routing)
+                                     if env.obs_routing is not None else None)
         cfg["spawn"]["random_start"] = env.random_start
         cfg["spawn"]["random_direction"] = env.random_direction
         cfg["sim"]["realtime_factor"] = env.realtime_factor
@@ -62,6 +64,11 @@ class Builder:
         cfg["reward"]["reward_scale_overrides"] = dict(env.reward_scales)
         if env.render == "nyx":
             cfg["vision"]["vision_renderer"] = "nyx"
+        # Part M.2: Madrona/Nyx are GPU-only, so camera obs on the CPU backend
+        # must use the per-env rasterizer. Set AFTER the nyx branch so cpu wins
+        # (a camera+cpu spec that also said render='nyx' falls to the rasterizer).
+        if env.modality == "camera" and env.backend == "cpu":
+            cfg["vision"]["vision_renderer"] = "rasterizer"
         if randomize:
             rand = dict(_NEUTRAL_PHYSICS)
             rand.update(obs_dr.physics)
@@ -73,6 +80,8 @@ class Builder:
             cfg["vision"]["appearance"] = dict(obs_dr.appearance)
         if obs_dr.pixel_noise:
             cfg["vision"]["pixel_noise"] = obs_dr.pixel_noise
+        if obs_dr.env_map:
+            cfg["vision"]["env_map"] = dict(obs_dr.env_map)
         if self.spec.policy is not None and self.spec.policy.actions:
             cfg["action"]["action_table"] = [list(a) for a in self.spec.policy.actions]
         if env.emits_cost:

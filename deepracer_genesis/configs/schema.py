@@ -68,6 +68,7 @@ class ObsConfig(TypedDict):
     obs_noise: float
     feature_set: Optional[type]   # a FeatureSet subclass, or None -> ClassicFeatures
     feature_params: dict
+    obs_routing: Optional[dict]   # Part K.3 actor/critic routing (None = single "state")
 
 
 class VisionConfig(TypedDict):
@@ -82,7 +83,7 @@ class VisionConfig(TypedDict):
     spectator: bool
     spectator_res: tuple
     madrona_rg_swap: bool
-    vision_renderer: Literal["batch", "nyx"]
+    vision_renderer: Literal["batch", "nyx", "rasterizer"]
     nyx_mode: str
     nyx_spp: int
     nyx_light_intensity: float
@@ -91,6 +92,7 @@ class VisionConfig(TypedDict):
     background_color: tuple
     field_color: tuple
     appearance: dict
+    env_map: dict          # Part P.1 Nyx per-env sky DR ({"tint": (lo,hi), "multiplier": (lo,hi)})
 
 
 class RewardConfig(TypedDict):

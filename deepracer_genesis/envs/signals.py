@@ -8,10 +8,18 @@ computed:
 - **Lazy + per-step cache**: a signal is computed on first read and cached until
   the next ``_post_physics`` calls :meth:`SignalBus.invalidate`. A run that never
   reads ``curvature_ahead`` never pays for it.
-- **Single source of the driving-frame convention**: signals return the values
-  the env already computed in ``_post_physics`` (``lateral``/``heading_err``/
-  ``d_progress`` are already ``dir_sign``-corrected), so there is no parallel
-  copy and no scattered ``·dir_sign`` re-application.
+- **Signals are raw; the driving-frame transform lives in the consumer.** Each
+  signal returns exactly the value the env computed in ``_post_physics`` — no
+  recomputation, no parallel copy — and its ``frame`` metadata states honestly
+  whether that value is already ``dir_sign``-corrected. ``heading_err`` and
+  ``d_progress`` genuinely *are* driving-frame (the env applies ``dir_sign`` when
+  it computes them, see ``base_env._post_physics``), so their ``frame`` is
+  ``"driving"``. ``lateral`` is the *raw* signed offset from the centerline —
+  the env stores it un-corrected — so its ``frame`` is ``"raw"`` and any
+  consumer that wants the driving-frame value multiplies by ``dir_sign`` itself
+  (as the ``lateral`` feature block does). Marking ``lateral`` as anything but
+  ``"raw"`` would be a lie: the ``frame`` field is per-signal truth, not a
+  blanket claim that every signal is driving-frame.
 
 This module is the K.1 foundation. K.2 (features as signal selections), K.3
 (config-routed actor/critic keys), and K.4 (reward+cost as signal combinations)
@@ -126,25 +134,36 @@ def _curvature_ahead(env: "DeepRacerEnv") -> torch.Tensor:
     return env.track.curvature[env.track._ev, env.wp_idx]
 
 
+# frame is per-signal truth (see module docstring): "driving" only for signals
+# the env already dir_sign-corrected (heading_err, d_progress, curvature_ahead);
+# everything else is "raw" — the consumer applies dir_sign if it wants the
+# driving frame (the lateral feature block does exactly this).
 SIGNALS: dict[str, Signal] = {
-    # cheap kinematics (velocities aren't inferable from one frame)
-    "v_forward": Signal("v_forward", lambda e: e.v_forward, pixel_observable=False),
-    "v_lateral": Signal("v_lateral", lambda e: e.v_lateral, pixel_observable=False),
-    "yaw_rate": Signal("yaw_rate", lambda e: e.yaw_rate, pixel_observable=False),
-    "up_z": Signal("up_z", lambda e: e.up_z, pixel_observable=False),
+    # cheap kinematics (velocities aren't inferable from one frame; frame-invariant)
+    "v_forward": Signal("v_forward", lambda e: e.v_forward, pixel_observable=False, frame="raw"),
+    "v_lateral": Signal("v_lateral", lambda e: e.v_lateral, pixel_observable=False, frame="raw"),
+    "yaw_rate": Signal("yaw_rate", lambda e: e.yaw_rate, pixel_observable=False, frame="raw"),
+    "up_z": Signal("up_z", lambda e: e.up_z, pixel_observable=False, frame="raw"),
     # track-frame geometry (visible in a single frame)
-    "lateral": Signal("lateral", lambda e: e.lateral, pixel_observable=True),
-    "half_width": Signal("half_width", lambda e: e.half_width, pixel_observable=True),
-    "heading_err": Signal("heading_err", lambda e: e.heading_err, pixel_observable=True),
-    "off_track": Signal("off_track", _off_track, pixel_observable=True),
-    # progress is NOT recoverable from a single frame (the CNN-can't-see-progress case)
-    "d_progress": Signal("d_progress", lambda e: e.d_progress, pixel_observable=False),
+    #   lateral: RAW signed offset — env does NOT dir_sign-correct it; the
+    #   feature layer multiplies by dir_sign itself.
+    "lateral": Signal("lateral", lambda e: e.lateral, pixel_observable=True, frame="raw"),
+    "half_width": Signal("half_width", lambda e: e.half_width, pixel_observable=True, frame="raw"),
+    #   heading_err: env applies dir_sign in _post_physics -> genuinely driving.
+    "heading_err": Signal("heading_err", lambda e: e.heading_err, pixel_observable=True,
+                          frame="driving"),
+    #   off_track uses |lateral|, so it is frame-invariant; label raw (uncorrected input).
+    "off_track": Signal("off_track", _off_track, pixel_observable=True, frame="raw"),
+    # progress is NOT recoverable from a single frame (the CNN-can't-see-progress case);
+    # env dir_sign-corrects d_progress -> driving.
+    "d_progress": Signal("d_progress", lambda e: e.d_progress, pixel_observable=False,
+                         frame="driving"),
     # commands
     "actions": Signal("actions", lambda e: e.actions, pixel_observable=False, frame="raw"),
     "action_rate": Signal("action_rate", _d_actions, pixel_observable=False, frame="raw"),
-    # heavy lookahead geometry (only paid for when read)
+    # heavy lookahead geometry (only paid for when read); fronts a dir_sign-aware value.
     "curvature_ahead": Signal("curvature_ahead", _curvature_ahead,
-                              pixel_observable=True, cost="heavy"),
+                              pixel_observable=True, cost="heavy", frame="driving"),
 }
 
 

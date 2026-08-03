@@ -87,20 +87,48 @@ def _barrel_distort(x: torch.Tensor, k: torch.Tensor) -> torch.Tensor:
         x, grid, mode="bilinear", padding_mode="border", align_corners=True)
 
 
+def _crop_resize(x: torch.Tensor, frac: float) -> torch.Tensor:
+    """Random per-image crop (up to ``frac`` off) resized back to full size.
+
+    Models field-of-view / principal-point jitter without touching camera
+    intrinsics: each image zooms into a random sub-window and is resampled to
+    the original resolution.
+
+    Args:
+        x: Image batch ``(n, c, h, w)``.
+        frac: Max fraction of the frame croppable per image (0 disables).
+
+    Returns:
+        The cropped-and-resized batch, same shape as ``x``.
+    """
+    n, _, h, w = x.shape
+    dev = x.device
+    scale = 1.0 - torch.rand(n, device=dev) * frac      # remaining window (<=1)
+    max_t = 1.0 - scale                                  # keep the window on-frame
+    tx = (torch.rand(n, device=dev) * 2 - 1) * max_t
+    ty = (torch.rand(n, device=dev) * 2 - 1) * max_t
+    theta = torch.zeros(n, 2, 3, device=dev)
+    theta[:, 0, 0] = scale; theta[:, 0, 2] = tx
+    theta[:, 1, 1] = scale; theta[:, 1, 2] = ty
+    grid = torch.nn.functional.affine_grid(theta, x.shape, align_corners=False)
+    return torch.nn.functional.grid_sample(
+        x, grid, mode="bilinear", padding_mode="border", align_corners=False)
+
+
 def apply_image_aug(img: torch.Tensor, aug: dict) -> torch.Tensor:
     """Return img with the sampled augmentations applied, clamped to [0, 1].
 
     Effects are applied geometric-first, then photometric, then sensor noise:
-    distortion, brightness, contrast, gamma, saturation, hue, white balance,
-    vignette, blur, cutout, shot noise, additive noise. Each is skipped when its
-    key is absent from ``aug``.
+    distortion, crop, brightness, contrast, gamma, saturation, hue, white
+    balance, vignette, blur, cutout, shot noise, additive noise. Each is skipped
+    when its key is absent from ``aug``.
 
     Args:
         img: Float image tensor ``(*B, C, H, W)`` in [0, 1].
         aug: Augmentation config keyed by effect name to its range or scale.
             Ranges (``(lo, hi)`` tuples): ``brightness``, ``contrast``,
             ``saturation``, ``gamma``. Scalar magnitudes: ``hue``, ``blur``,
-            ``cutout``, ``noise``, ``distortion``, ``white_balance``,
+            ``cutout``, ``noise``, ``distortion``, ``crop``, ``white_balance``,
             ``vignette``, ``shot_noise``.
 
     Returns:
@@ -116,6 +144,8 @@ def apply_image_aug(img: torch.Tensor, aug: dict) -> torch.Tensor:
     if aug.get("distortion"):
         k = (torch.rand(n, device=dev) * 2 - 1) * aug["distortion"]
         x = _barrel_distort(x, k)
+    if aug.get("crop"):
+        x = _crop_resize(x, aug["crop"])
     if "brightness" in aug:
         x = x * _u(*aug["brightness"], n, dev)
     if "contrast" in aug:

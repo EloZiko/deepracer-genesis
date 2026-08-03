@@ -204,12 +204,14 @@ class DeepRacerEnv:
     def _obs_groups(self) -> dict:
         """Assemble the observation groups exposed by :meth:`get_observations`.
 
-        The base emits only ``state``; vision subclasses add a ``camera`` group.
+        The base emits ``state`` (or, under Part K.3 per-signal routing, the two
+        vectors ``obs_actor``/``obs_critic``); vision subclasses add ``camera``.
 
         Returns:
-            Mapping from observation-group name to its tensor (base: ``state``
-            only).
+            Mapping from observation-group name to its tensor.
         """
+        if self._routed:
+            return {"obs_actor": self.obs_actor_buf, "obs_critic": self.obs_critic_buf}
         return {"state": self.state_buf}
 
     @property
@@ -269,10 +271,25 @@ class DeepRacerEnv:
         from .features import resolve_feature_set
         obs_cfg = env_cfg["obs"]
         self.lookahead_k = obs_cfg["lookahead_k"]
-        self.feature_set = resolve_feature_set(obs_cfg["feature_set"])(
-            self, dict(obs_cfg["feature_params"]))
-        self.num_state_obs = self.feature_set.dim
-        self.state_buf = torch.zeros(N, self.num_state_obs, device=self.device)
+        # Part K.3: per-signal actor/critic routing emits two vectors
+        # (obs_actor/obs_critic) instead of one "state"; None keeps the single
+        # vector (byte-identical default path).
+        routing = obs_cfg.get("obs_routing")
+        self._routed = routing is not None
+        if self._routed:
+            from .features import RoutedFeatures
+            self.feature_set = RoutedFeatures(self, dict(routing))
+            self.num_state_obs = self.feature_set.dim          # critic superset
+            self.obs_actor_buf = torch.zeros(
+                N, self.feature_set.actor_dim, device=self.device)
+            self.obs_critic_buf = torch.zeros(
+                N, self.feature_set.critic_dim, device=self.device)
+            self.state_buf = self.obs_critic_buf               # NaN guard/snapshot
+        else:
+            self.feature_set = resolve_feature_set(obs_cfg["feature_set"])(
+                self, dict(obs_cfg["feature_params"]))
+            self.num_state_obs = self.feature_set.dim
+            self.state_buf = torch.zeros(N, self.num_state_obs, device=self.device)
         self._init_obs_buffers(env_cfg)
 
         # Shared lazy signal bus (Part K.1): populated per step, read by any
@@ -452,9 +469,21 @@ class DeepRacerEnv:
         self.progress_m = new_progress
 
         # ---- state obs (assembled by the selected feature set) ----
-        self.state_buf = self.feature_set.compute()
-        if self.cfg["obs"]["obs_noise"] > 0:
-            self.state_buf += torch.randn_like(self.state_buf) * self.cfg["obs"]["obs_noise"]
+        obs_noise = self.cfg["obs"]["obs_noise"]
+        if self._routed:
+            # Part K.3: assemble both vectors; the critic superset backs the NaN
+            # guard + terminal snapshot (state_buf), obs_noise perturbs the ACTOR
+            # copy only (privileged clean critic — the value-of-asymmetry point).
+            self.obs_actor_buf = self.feature_set.compute_actor()
+            self.obs_critic_buf = self.feature_set.compute_critic()
+            self.state_buf = self.obs_critic_buf
+            if obs_noise > 0:
+                self.obs_actor_buf = (self.obs_actor_buf
+                                      + torch.randn_like(self.obs_actor_buf) * obs_noise)
+        else:
+            self.state_buf = self.feature_set.compute()
+            if obs_noise > 0:
+                self.state_buf += torch.randn_like(self.state_buf) * obs_noise
 
         self._observe_camera()
 

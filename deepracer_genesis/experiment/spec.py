@@ -66,6 +66,13 @@ class EnvSpec:
     # the sim2real CNN targets + error channels. feature_params tunes it.
     feature_set: "type[FeatureSet] | None" = None
     feature_params: dict = field(default_factory=dict)
+    # per-signal actor/critic obs routing (Part K.3), feature mode only. None =
+    # the single "state" vector (default). When set:
+    #   {"base": (block names...), "actor": sel, "critic": sel}
+    # where each sel is a subset of base or ("*",) (= all base blocks). The env
+    # then emits distinct "obs_actor"/"obs_critic" vectors instead of "state" —
+    # the vector-mode privileged-critic analogue (critic sees a superset).
+    obs_routing: Optional[dict] = None
     tracks: tuple[str, ...] = ("reinvent_base",)
     num_envs: int = 512
     # spawn randomization: every episode starts at a random waypoint with
@@ -105,6 +112,9 @@ class ObsDRSpec:
     # ({"world_color": strength}); see DomainRandomizationTrackAppearance
     appearance: dict = field(default_factory=dict)
     pixel_noise: float = 0.0                       # gaussian render-path noise
+    # Part P.1: per-env Nyx sky DR ({"tint": (lo,hi), "multiplier": (lo,hi)}),
+    # baked at scene.build() -> per-env-fixed (per run), not per-episode.
+    env_map: dict = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -268,9 +278,13 @@ class ExperimentSpec:
     # ------------------------------------------------------------------
     def available_keys(self) -> tuple[str, ...]:
         """Observation keys the env (+ encoder) makes visible to policies."""
-        keys = ["state"]
-        if self.env is not None and self.env.modality == "camera":
-            keys.append("camera")
+        # Part K.3: routed feature envs emit two vectors instead of "state".
+        if self.env is not None and self.env.obs_routing is not None:
+            keys = ["obs_actor", "obs_critic"]
+        else:
+            keys = ["state"]
+            if self.env is not None and self.env.modality == "camera":
+                keys.append("camera")
         if self.encoder.kind != "none":
             keys.append(self.encoder.out_key)
         return tuple(keys)
@@ -290,11 +304,13 @@ class ExperimentSpec:
         if self.policy is None:
             raise SpecError("pipeline must include exactly one Policy stage")
         self._validate_environment()
+        self._validate_obs_routing()
         self._validate_key_routing()
         self._validate_encoder()
         self._validate_obs_dr()
         self._validate_action_dr()
         self._validate_algorithm()
+        self._validate_learnability()
         return self
 
     def _validate_environment(self) -> None:
@@ -318,13 +334,21 @@ class ExperimentSpec:
             raise SpecError(
                 "heterogeneous tracks are Madrona-only (repo constraint); "
                 "render='nyx' with tracks=%r" % (env.tracks,))
-        # Part M Tier 2: Madrona/Nyx are GPU-only. A rasterizer obs renderer for
-        # camera-on-CPU is not yet implemented; fail clearly rather than crash.
+        # Part M Tier 2: Madrona/Nyx are GPU-only; camera obs on the CPU backend
+        # renders per-env through the (unbatched, slow) RasterizerObsRenderer,
+        # which the builder selects by setting vision_renderer='rasterizer'. It
+        # is a debug / small-num_envs / no-GPU path, not a throughput path, and —
+        # unlike Madrona spatial tiling (Part O) — supports a SINGLE track only.
         if env.modality == "camera" and env.backend == "cpu":
-            raise SpecError(
-                "camera obs on backend='cpu' needs a rasterizer ObsRenderer "
-                "(Madrona/Nyx are GPU-only); not yet implemented. Use "
-                "backend='gpu' for camera, or a feature env on CPU.")
+            if len(env.tracks) > 1:
+                raise SpecError(
+                    "camera-on-CPU uses the per-env rasterizer, which renders a "
+                    "single track only; multi-track camera training needs Madrona "
+                    "tiling on backend='gpu' (got tracks=%r)" % (env.tracks,))
+            warnings.warn(
+                "camera obs on backend='cpu' uses the per-env RasterizerObsRenderer "
+                "(unbatched, far slower than Madrona) — a debug / small-num_envs / "
+                "no-GPU path, not a training-throughput path", stacklevel=2)
         if env.emits_cost:
             if env.cost_fn not in VALID_COST_FNS:
                 raise SpecError("cost_fn must be one of %s; got %r" % (VALID_COST_FNS, env.cost_fn))
@@ -337,6 +361,49 @@ class ExperimentSpec:
                 "view='gui' opens an interactive window and is a debug/watch path; "
                 "num_envs=%d is large for it — consider a small batch" % env.num_envs,
                 stacklevel=2)
+
+    def _validate_obs_routing(self) -> None:
+        """Check per-signal actor/critic obs routing (Part K.3), if declared.
+
+        Raises:
+            SpecError: If routing is set on a camera env, or its base/actor/
+                critic block selections are empty or name unknown blocks.
+        """
+        routing = self.env.obs_routing
+        if routing is None:
+            return
+        from ..envs.features import FEATURE_BLOCKS
+        if self.env.modality != "feature":
+            raise SpecError(
+                "obs_routing is per-signal feature routing; it needs a feature "
+                "env (camera obs stays routed per key)")
+        base = tuple(routing.get("base", ()))
+        if not base:
+            raise SpecError("obs_routing needs a non-empty 'base' block list")
+        unknown = [n for n in base if n not in FEATURE_BLOCKS]
+        if unknown:
+            raise SpecError("obs_routing base has unknown block(s) %s; available: %s"
+                            % (unknown, sorted(FEATURE_BLOCKS)))
+        resolved = {}
+        for role in ("actor", "critic"):
+            sel = tuple(routing.get(role, ("*",)))
+            if not sel:
+                raise SpecError("obs_routing '%s' selection may not be empty" % role)
+            if sel == ("*",):
+                resolved[role] = set(base)
+                continue
+            bad = [n for n in sel if n not in base]
+            if bad:
+                raise SpecError("obs_routing '%s' selects block(s) %s not in base %s"
+                                % (role, bad, base))
+            resolved[role] = set(sel)
+        # privileged-critic invariant: the critic must see at least what the
+        # actor sees (obs_critic supersets obs_actor block-wise).
+        actor_only = resolved["actor"] - resolved["critic"]
+        if actor_only:
+            raise SpecError(
+                "obs_routing critic must see >= the actor's blocks (privileged "
+                "critic); actor-only blocks %s" % sorted(actor_only))
 
     def _validate_key_routing(self) -> None:
         """Check actor/critic obs keys, discrete actions, and camera routing.
@@ -357,9 +424,16 @@ class ExperimentSpec:
         if not c_keys <= avail:
             raise SpecError("critic_keys %s not produced by env/encoder (available: %s)"
                             % (sorted(c_keys - avail), sorted(avail)))
-        if not a_keys <= c_keys:
+        # Part K.3: the routed pair (obs_actor, obs_critic) satisfies the
+        # asymmetry invariant by construction — obs_critic is the value-vector
+        # that supersets the actor's blocks (enforced in _validate_obs_routing) —
+        # even though the two KEYS differ, so map obs_actor -> obs_critic here.
+        check_a = a_keys
+        if self.env is not None and self.env.obs_routing is not None and "obs_actor" in a_keys:
+            check_a = (a_keys - {"obs_actor"}) | {"obs_critic"}
+        if not check_a <= c_keys:
             raise SpecError("asymmetric policies require critic_keys ⊇ actor_keys; "
-                            "actor has %s the critic lacks" % sorted(a_keys - c_keys))
+                            "actor has %s the critic lacks" % sorted(check_a - c_keys))
         if policy.actions is not None:
             if len(policy.actions) < 2:
                 raise SpecError("a discrete action space needs >= 2 actions")
@@ -404,6 +478,9 @@ class ExperimentSpec:
         env, obs_dr = self.env, self.obs_dr
         if obs_dr.appearance and env.modality != "camera":
             raise SpecError("appearance DR recolors the rendered observation; "
+                            "it needs a camera env")
+        if obs_dr.env_map and env.modality != "camera":
+            raise SpecError("env_map DR randomizes the rendered sky; "
                             "it needs a camera env")
         if env.modality == "camera" and len(env.tracks) > 1 and env.render == "madrona":
             # Part O: sound via spatial tiling (each variant on its own world
@@ -461,3 +538,100 @@ class ExperimentSpec:
                 "cost stream is collected but unconstrained (was this intentional?)"
                 % "PPO-Lagrangian",
                 stacklevel=2)
+
+    # ------------------------------------------------------------------
+    def _routed_signals(self, role: str) -> "set[str]":
+        """Signals an ``obs_actor``/``obs_critic`` vector recovers (Part K.3).
+
+        Resolves the routed block selection for ``role`` (``"actor"``/
+        ``"critic"``); a ``("*",)`` selection means "all base blocks", mapped to
+        ``{"*"}`` to match the coarse ``state`` behavior (so a privileged
+        ``critic=["*"]`` stays warning-free), while an explicit block subset maps
+        to exactly the signals those blocks carry.
+        """
+        from ..envs.features import blocks_signal_set
+        routing = self.env.obs_routing or {}
+        sel = tuple(routing.get(role, ("*",)))
+        if sel == ("*",):
+            return {"*"}
+        base = tuple(routing.get("base", ()))
+        chosen = tuple(n for n in base if n in set(sel))   # base order
+        return blocks_signal_set(chosen)
+
+    def _signals_for_keys(self, keys: "set[str]") -> "set[str]":
+        """Map obs keys to the signal names a consumer can recover (K.5).
+
+        A feature vector (``state``) carries every signal; a raw camera or a
+        frozen-CNN encoding over it recovers only the ``pixel_observable``
+        subset; the routed ``obs_actor``/``obs_critic`` vectors (Part K.3) carry
+        exactly their selected blocks' signals. ``"*"`` (all signals) is passed
+        through for a config that lists signals explicitly.
+
+        Args:
+            keys: the actor's or critic's obs keys (from the PolicySpec).
+
+        Returns:
+            The set of signal names that consumer can condition on, or ``{"*"}``
+            when it sees the full feature vector (every signal).
+        """
+        if "*" in keys or "state" in keys:
+            return {"*"}
+        # Part K.3 routed vectors: the actor/critic each carry their own blocks.
+        if "obs_actor" in keys or "obs_critic" in keys:
+            out: set[str] = set()
+            if "obs_actor" in keys:
+                out |= self._routed_signals("actor")
+            if "obs_critic" in keys:
+                out |= self._routed_signals("critic")
+            return {"*"} if "*" in out else out
+        # pixel-only consumer: raw camera or a CNN encoding over it. It can only
+        # recover the pixel_observable signals.
+        from ..envs.signals import SIGNALS
+        pixel_keys = {"camera", self.encoder.out_key}
+        if keys & pixel_keys:
+            return {n for n, s in SIGNALS.items() if s.pixel_observable}
+        return set()
+
+    def _validate_learnability(self) -> None:
+        """Warn (never raise) if the reward/cost read signals the CRITIC can't see (K.5).
+
+        Because the reward and cost declare their signal ``reads`` over the
+        shared signal vocabulary (Part K.4), the build statically checks
+        ``reward.reads ∪ cost.reads ⊆ critic-visible signals`` and warns when a
+        term is genuinely **unlearnable** — no network (not even the critic) can
+        recover its inputs, so the run is wasted. Purely additive: it emits at
+        most one :class:`UserWarning`, changing no run behavior. An undeclared
+        custom reward (no ``reads``) is skipped.
+
+        The softer "the actor can't directly act on this signal" advisory that
+        :func:`~deepracer_genesis.envs.signals.check_learnability` also returns is
+        **deliberately not emitted here**: it fires on the intended asymmetric
+        privileged-critic design (a critic that sees ``state``/progress while a
+        pixel-only actor does not — the very pattern the repo is built on), so a
+        per-build warning about it would flag correct experiments as suspect.
+        That advisory stays available in ``check_learnability`` for opt-in use.
+
+        Note:
+            Coarse per-key routing (K.3 not required): ``state`` -> all signals,
+            ``camera``/encoder -> the pixel-observable subset.
+        """
+        from ..envs.rewards import cost_reads, deepracer, reward_reads
+        from ..envs.signals import check_learnability
+
+        env, policy = self.env, self.policy
+        reward_fn = env.reward or deepracer
+        r_reads = reward_reads(reward_fn)
+        c_reads = cost_reads(env.cost_fn) if env.emits_cost else frozenset()
+        if not r_reads and not c_reads:
+            return   # nothing declared to verify (undeclared custom reward)
+
+        actor_signals = self._signals_for_keys(set(policy.actor_keys))
+        critic_signals = self._signals_for_keys(set(policy.critic_keys))
+        problems = check_learnability(
+            reward_reads=set(r_reads), cost_reads=set(c_reads),
+            actor_signals=actor_signals, critic_signals=critic_signals)
+        # only the hard "unlearnable" problems (critic can't see the signal);
+        # the soft privileged-critic advisory is intentional, not a warning.
+        unlearnable = [p for p in problems if p.startswith("unlearnable")]
+        if unlearnable:
+            warnings.warn("learnability: " + "; ".join(unlearnable), stacklevel=2)

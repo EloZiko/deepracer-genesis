@@ -64,6 +64,40 @@ def sample_world_color(n: int, strength: float, device) -> tuple[torch.Tensor, t
     return color_mat, color_bias
 
 
+def sample_env_map(n: int, tint_range: tuple[float, float] = (0.35, 0.75),
+                   mult_range: tuple[float, float] = (0.5, 2.0), *,
+                   device, generator: "torch.Generator | None" = None
+                   ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Sample per-env Nyx environment-map (sky) DR: RGB tint + exposure (Part P.1).
+
+    Draws a per-env uniform-radiance sky — a colour ``tint`` and an exposure
+    ``multiplier`` — the values a texture-less ``EnvironmentMapAsset`` needs. The
+    returned tensors are device-agnostic and Nyx-free (the NyxRenderer is the
+    application site that converts them to ``nps.float3``); this keeps the range
+    definition testable without a GPU/Nyx path-tracer.
+
+    Args:
+        n: Number of environments to sample for.
+        tint_range: ``(lo, hi)`` for each RGB tint channel.
+        mult_range: ``(lo, hi)`` for the exposure multiplier.
+        device: Torch device for the returned tensors.
+        generator: Optional ``torch.Generator`` for reproducible draws.
+
+    Returns:
+        ``(tint, multiplier)`` of shapes ``(n, 3)`` and ``(n,)``.
+
+    Note:
+        Nyx bakes env maps at ``scene.build()``, so these are per-ENV-FIXED
+        (per run), NOT per-episode — sample ONCE at build with ``n`` draws; do
+        not wire this into the per-episode reset path.
+    """
+    tlo, thi = tint_range
+    mlo, mhi = mult_range
+    tint = tlo + (thi - tlo) * torch.rand(n, 3, device=device, generator=generator)
+    mult = mlo + (mhi - mlo) * torch.rand(n, device=device, generator=generator)
+    return tint, mult
+
+
 def add_pixel_noise(img: torch.Tensor, scale: float) -> torch.Tensor:
     """Add gaussian pixel noise (scale > 0) and clamp back to ``[0, 1]``."""
     if scale <= 0:

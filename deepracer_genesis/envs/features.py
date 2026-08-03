@@ -97,6 +97,16 @@ class FeatureSet:
     def layout_for(cls, *, lookahead_k: int, params: dict) -> str:
         raise NotImplementedError
 
+    @classmethod
+    def reads_for(cls, *, params: dict) -> tuple[str, ...]:
+        """Signal names this set reads (a feature->signal trace, Part K.2/K.5).
+
+        Order-preserving, de-duplicated. Feeds the build-time learnability
+        check so the builder can trace each observed feature to its signal(s).
+        Default empty; presets override.
+        """
+        return ()
+
     #: (start, end) slice of channels a deployed CNN must predict; None if
     #: the whole vector is privileged-only (no pixel-readable subset)
     cnn_target_slice: tuple[int, int] | None = None
@@ -125,6 +135,12 @@ class ClassicFeatures(FeatureSet):
                 f"lookahead_rel_x[{lookahead_k}]/scale, "
                 f"lookahead_rel_y[{lookahead_k}]/scale")
 
+    @classmethod
+    def reads_for(cls, *, params: dict) -> tuple[str, ...]:
+        # same signals as the full ordered block selection; see FEATURE_BLOCKS.
+        return ("v_forward", "v_lateral", "yaw_rate", "lateral", "half_width",
+                "heading_err", "actions")
+
     def compute(self) -> torch.Tensor:
         env = self.env
         cy, sy = torch.cos(env.yaw), torch.sin(env.yaw)
@@ -138,14 +154,14 @@ class ClassicFeatures(FeatureSet):
         la_scale = env.cfg["obs"]["lookahead_scale"]
         return torch.cat(
             [
-                (env.v_forward / env.cfg["action"]["max_speed"]).unsqueeze(1),
-                env.v_lateral.unsqueeze(1),
-                (env.yaw_rate / YAW_RATE_NORM).unsqueeze(1),
-                (env.lateral * env.dir_sign
-                 / env.half_width.clamp(min=0.1)).unsqueeze(1),
-                torch.sin(env.heading_err).unsqueeze(1),
-                torch.cos(env.heading_err).unsqueeze(1),
-                env.actions,
+                (_read(env, "v_forward") / env.cfg["action"]["max_speed"]).unsqueeze(1),
+                _read(env, "v_lateral").unsqueeze(1),
+                (_read(env, "yaw_rate") / YAW_RATE_NORM).unsqueeze(1),
+                (_read(env, "lateral") * env.dir_sign
+                 / _read(env, "half_width").clamp(min=0.1)).unsqueeze(1),
+                torch.sin(_read(env, "heading_err")).unsqueeze(1),
+                torch.cos(_read(env, "heading_err")).unsqueeze(1),
+                _read(env, "actions"),
                 rel_x / la_scale,
                 rel_y / la_scale,
             ],
@@ -209,34 +225,44 @@ class PerceptionFeatures(FeatureSet):
     def cnn_target_slice(self) -> tuple[int, int]:
         return (0, self._counts(self.params)[0])
 
+    @classmethod
+    def reads_for(cls, *, params: dict) -> tuple[str, ...]:
+        # signal-backed raw inputs; curvature comes from the (heavy) lookahead
+        # geometry the "curvature_ahead" signal also fronts.
+        return ("lateral", "half_width", "heading_err", "v_forward",
+                "yaw_rate", "v_lateral", "actions", "curvature_ahead")
+
     # ---- per-step ------------------------------------------------------
     def compute(self) -> torch.Tensor:
         env = self.env
+        v_forward = _read(env, "v_forward")
+        yaw_rate_raw = _read(env, "yaw_rate")
+        actions = _read(env, "actions")
 
         # -- CNN targets: what a camera could tell you ------------------
-        lateral = env.lateral * env.dir_sign / env.half_width.clamp(min=0.1)
-        heading = env.heading_err / math.pi
-        speed = env.v_forward / MAX_SPEED
-        yaw_rate = env.yaw_rate / YAW_RATE_NORM
-        beta = torch.atan2(env.v_lateral,
-                           env.v_forward.clamp(min=0.05)) / BETA_NORM
+        lateral = _read(env, "lateral") * env.dir_sign / _read(env, "half_width").clamp(min=0.1)
+        heading = _read(env, "heading_err") / math.pi
+        speed = v_forward / MAX_SPEED
+        yaw_rate = yaw_rate_raw / YAW_RATE_NORM
+        beta = torch.atan2(_read(env, "v_lateral"),
+                           v_forward.clamp(min=0.05)) / BETA_NORM
         kappa = env.track.curvature_ahead(
             env.progress_m, self.horizons, env.dir_sign) / CURVATURE_NORM
 
         # -- error channels vs the FIXED nominal bicycle ----------------
-        steer_cmd = env.actions[:, 0] * MAX_STEER_RAD
-        speed_cmd = MIN_SPEED + (env.actions[:, 1] + 1) * 0.5 * (MAX_SPEED - MIN_SPEED)
-        yaw_expected = env.v_forward * torch.tan(steer_cmd) / NOMINAL_WHEELBASE
-        a_lat_expected = env.v_forward * yaw_expected            # v^2 tan(d)/L
-        a_lat_actual = env.v_forward * env.yaw_rate
+        steer_cmd = actions[:, 0] * MAX_STEER_RAD
+        speed_cmd = MIN_SPEED + (actions[:, 1] + 1) * 0.5 * (MAX_SPEED - MIN_SPEED)
+        yaw_expected = v_forward * torch.tan(steer_cmd) / NOMINAL_WHEELBASE
+        a_lat_expected = v_forward * yaw_expected            # v^2 tan(d)/L
+        a_lat_actual = v_forward * yaw_rate_raw
 
-        speed_err = (speed_cmd - env.v_forward) / MAX_SPEED
+        speed_err = (speed_cmd - v_forward) / MAX_SPEED
         steer_err = ((a_lat_expected - a_lat_actual) / A_LAT_NORM).clamp(-2, 2)
-        yaw_err = ((yaw_expected - env.yaw_rate) / YAW_RATE_NORM).clamp(-2, 2)
+        yaw_err = ((yaw_expected - yaw_rate_raw) / YAW_RATE_NORM).clamp(-2, 2)
 
         # -- roll the histories (newest first) --------------------------
         self._prev_actions = torch.cat(
-            [env.actions.unsqueeze(1), self._prev_actions[:, :-1]], dim=1)
+            [actions.unsqueeze(1), self._prev_actions[:, :-1]], dim=1)
         self._speed_err = torch.cat(
             [speed_err.unsqueeze(1), self._speed_err[:, :-1]], dim=1)
         self._steer_err = torch.cat(
@@ -280,20 +306,48 @@ from typing import Callable, Union         # noqa: E402
 class FeatureBlock:
     """One named group of feature channels.
 
+    A block computes reads its raw inputs from the signal bus (``env.signals``)
+    when a matching :data:`~deepracer_genesis.envs.signals.SIGNALS` entry exists
+    — via :func:`_read` — so ``reads`` is a truthful, checkable feature->signal
+    trace (Part K.2 / K.5). The normalization and any driving-frame
+    (``dir_sign``) transform stay in the block: signals expose *raw* env values
+    (see :data:`~deepracer_genesis.envs.signals.SIGNALS` frame metadata), the
+    feature layer applies the transform. This keeps the vector byte-for-byte
+    identical to :class:`ClassicFeatures` while making the bus non-dead.
+
     Attributes:
         width: Channel count — an int, or a fn of ``lookahead_k`` for
             lookahead-sized blocks.
         compute: ``env -> (N, width)`` tensor for the current step.
         layout: Human-readable channel label(s); ``{k}`` expands to lookahead_k.
+        reads: Signal names this block reads (a feature->signal trace). Names
+            that match a registered signal are read via ``env.signals``; the
+            rest (e.g. composite geometry with no single signal) document the
+            env attributes the block touches.
     """
 
     width: Union[int, Callable[[int], int]]
     compute: Callable[["object"], torch.Tensor]
     layout: str
+    reads: tuple[str, ...] = ()
 
 
 def _block_width(width, lookahead_k: int) -> int:
     return width(lookahead_k) if callable(width) else width
+
+
+def _read(env, name: str):
+    """Read a raw signal value: from the bus if present, else the env attr.
+
+    The bus (``env.signals``) is the single source of truth once K.1 is wired;
+    the env-attribute fallback keeps blocks usable on a bare env or a test fake
+    that carries the attributes but no bus. Either path returns the same *raw*
+    value, so feature numbers are unchanged.
+    """
+    bus = getattr(env, "signals", None)
+    if bus is not None and name in getattr(bus, "registry", {}):
+        return bus[name]
+    return getattr(env, name)
 
 
 def _lookahead_xy(env) -> torch.Tensor:
@@ -310,22 +364,33 @@ def _lookahead_xy(env) -> torch.Tensor:
     return torch.cat([rel_x / la_scale, rel_y / la_scale], dim=1)
 
 
-#: the block vocabulary experiments select from (order in a selection matters)
+#: the block vocabulary experiments select from (order in a selection matters).
+#: Each block's ``reads`` names the signals it consumes; ``_read`` pulls those
+#: raw values from ``env.signals`` when the bus is present (Part K.2). The
+#: ``lateral`` block reads the *raw* ``lateral`` signal and applies ``dir_sign``
+#: here — signals are raw, the driving-frame transform lives in the feature.
 FEATURE_BLOCKS: dict[str, FeatureBlock] = {
     "v_forward": FeatureBlock(
-        1, lambda e: (e.v_forward / e.cfg["action"]["max_speed"]).unsqueeze(1),
-        "v_forward/max_speed"),
-    "v_lateral": FeatureBlock(1, lambda e: e.v_lateral.unsqueeze(1), "v_lateral"),
+        1, lambda e: (_read(e, "v_forward") / e.cfg["action"]["max_speed"]).unsqueeze(1),
+        "v_forward/max_speed", reads=("v_forward",)),
+    "v_lateral": FeatureBlock(
+        1, lambda e: _read(e, "v_lateral").unsqueeze(1), "v_lateral",
+        reads=("v_lateral",)),
     "yaw_rate": FeatureBlock(
-        1, lambda e: (e.yaw_rate / YAW_RATE_NORM).unsqueeze(1), "yaw_rate/norm"),
+        1, lambda e: (_read(e, "yaw_rate") / YAW_RATE_NORM).unsqueeze(1),
+        "yaw_rate/norm", reads=("yaw_rate",)),
     "lateral": FeatureBlock(
-        1, lambda e: (e.lateral * e.dir_sign / e.half_width.clamp(min=0.1)).unsqueeze(1),
-        "lateral/half_width"),
+        1, lambda e: (_read(e, "lateral") * e.dir_sign
+                      / _read(e, "half_width").clamp(min=0.1)).unsqueeze(1),
+        "lateral/half_width", reads=("lateral", "half_width")),
     "heading": FeatureBlock(
-        2, lambda e: torch.cat([torch.sin(e.heading_err).unsqueeze(1),
-                                torch.cos(e.heading_err).unsqueeze(1)], dim=1),
-        "sin(heading_err), cos(heading_err)"),
-    "last_action": FeatureBlock(2, lambda e: e.actions, "last_action[2]"),
+        2, lambda e: torch.cat([torch.sin(_read(e, "heading_err")).unsqueeze(1),
+                                torch.cos(_read(e, "heading_err")).unsqueeze(1)], dim=1),
+        "sin(heading_err), cos(heading_err)", reads=("heading_err",)),
+    "last_action": FeatureBlock(
+        2, lambda e: _read(e, "actions"), "last_action[2]", reads=("actions",)),
+    # composite body-frame waypoint geometry: no single registered signal
+    # corresponds to it, so reads=() (an honest empty trace).
     "lookahead_xy": FeatureBlock(
         lambda k: 2 * k, _lookahead_xy,
         "lookahead_rel_x[{k}]/scale, lookahead_rel_y[{k}]/scale"),
@@ -373,6 +438,115 @@ class SelectFeatures(FeatureSet):
         return ", ".join(FEATURE_BLOCKS[n].layout.format(k=lookahead_k)
                          for n in cls._names(params))
 
+    @classmethod
+    def reads_for(cls, *, params: dict) -> tuple[str, ...]:
+        """Order-preserving, de-duplicated union of the selected blocks' reads."""
+        out: list[str] = []
+        for n in cls._names(params):
+            for s in FEATURE_BLOCKS[n].reads:
+                if s not in out:
+                    out.append(s)
+        return tuple(out)
+
     def compute(self) -> torch.Tensor:
         return torch.cat([FEATURE_BLOCKS[n].compute(self.env)
                           for n in self._names(self.params)], dim=1)
+
+
+def blocks_signal_set(names: "tuple[str, ...]") -> "set[str]":
+    """Union of the signals the given feature blocks read (Part K.3/K.5).
+
+    Args:
+        names: feature-block names (must exist in :data:`FEATURE_BLOCKS`).
+
+    Returns:
+        The set of signal names those blocks recover (for the learnability check).
+    """
+    out: set[str] = set()
+    for n in names:
+        out.update(FEATURE_BLOCKS[n].reads)
+    return out
+
+
+class RoutedFeatures(FeatureSet):
+    """Two feature vectors — actor-visible and critic-visible — over one base (K.3).
+
+    ``params`` = ``{"base": (block names...), "actor": sel, "critic": sel}`` where
+    each ``sel`` is a subset of ``base`` or the sentinel ``("*",)`` (= all base
+    blocks). The routed vectors are assembled from :data:`FEATURE_BLOCKS`, so
+    they carry the SAME numbers as the equivalent :class:`SelectFeatures`; the
+    actor sees a (possibly strict) subset of what the critic sees — the
+    vector-mode analogue of the privileged-critic vision setup. ``compute()``
+    returns the critic vector (the superset the env's NaN guard and terminal
+    snapshot run on).
+
+    Attributes:
+        env: the live env the features are read from.
+        params: must contain ``base``; ``actor``/``critic`` default to all base.
+    """
+
+    def __init__(self, env, params: dict):
+        super().__init__(env, params)
+        base = tuple(params["base"])
+        self._base = base
+        self._actor = self._resolve(params.get("actor", ("*",)), base)
+        self._critic = self._resolve(params.get("critic", ("*",)), base)
+
+    @staticmethod
+    def _resolve(sel: "tuple[str, ...]", base: "tuple[str, ...]") -> "tuple[str, ...]":
+        """Resolve a selection to base order; ``("*",)`` = the whole base list."""
+        sel = tuple(sel)
+        if sel == ("*",):
+            return base
+        chosen = set(sel)
+        return tuple(n for n in base if n in chosen)   # base order, de-duplicated
+
+    def _widths(self, names: "tuple[str, ...]") -> int:
+        return sum(_block_width(FEATURE_BLOCKS[n].width, self.env.lookahead_k)
+                   for n in names)
+
+    @property
+    def actor_dim(self) -> int:
+        return self._widths(self._actor)
+
+    @property
+    def critic_dim(self) -> int:
+        return self._widths(self._critic)
+
+    @property
+    def dim(self) -> int:
+        return self.critic_dim   # the env sizes state_buf to the critic superset
+
+    def compute_actor(self) -> torch.Tensor:
+        return torch.cat([FEATURE_BLOCKS[n].compute(self.env)
+                          for n in self._actor], dim=1)
+
+    def compute_critic(self) -> torch.Tensor:
+        return torch.cat([FEATURE_BLOCKS[n].compute(self.env)
+                          for n in self._critic], dim=1)
+
+    def compute(self) -> torch.Tensor:
+        return self.compute_critic()
+
+    def reset(self, env_ids: torch.Tensor) -> None:
+        pass   # FEATURE_BLOCKS are stateless — no per-env history to clear
+
+    @classmethod
+    def dim_for(cls, *, lookahead_k: int, params: dict) -> int:
+        crit = cls._resolve(params.get("critic", ("*",)), tuple(params["base"]))
+        return sum(_block_width(FEATURE_BLOCKS[n].width, lookahead_k) for n in crit)
+
+    @classmethod
+    def layout_for(cls, *, lookahead_k: int, params: dict) -> str:
+        crit = cls._resolve(params.get("critic", ("*",)), tuple(params["base"]))
+        return ", ".join(FEATURE_BLOCKS[n].layout.format(k=lookahead_k) for n in crit)
+
+    @classmethod
+    def reads_for(cls, *, params: dict) -> tuple[str, ...]:
+        crit = cls._resolve(params.get("critic", ("*",)), tuple(params["base"]))
+        out: list[str] = []
+        for n in crit:
+            for s in FEATURE_BLOCKS[n].reads:
+                if s not in out:
+                    out.append(s)
+        return tuple(out)
