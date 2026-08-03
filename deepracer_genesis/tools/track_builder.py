@@ -26,6 +26,25 @@ _PALETTE = {"road": (41, 43, 51), "border": (235, 235, 235),
 
 
 # ----------------------------------------------------------------- geometry
+def _as_ccw(pts: np.ndarray) -> np.ndarray:
+    """Return the closed polygon oriented counterclockwise.
+
+    The border offsets and mesh winding downstream assume a CCW loop, so a
+    clockwise input is reversed (order-reversed, not polar-sorted, which would
+    reorder the path and wreck concave tracks). Driving direction follows the
+    canonical CCW order.
+
+    Args:
+        pts: (P, 2) polygon vertices in traversal order.
+
+    Returns:
+        The same vertices, reversed iff the loop was clockwise.
+    """
+    x, y = pts[:, 0], pts[:, 1]
+    signed_area = 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
+    return pts[::-1] if signed_area < 0 else pts
+
+
 def build_route(points_xy, half_width: float, n_waypoints: int = 150,
                 smooth_passes: int = 3) -> np.ndarray:
     """Turn a rough closed polygon into a (W, 6) DeepRacer route via Chaikin
@@ -48,6 +67,7 @@ def build_route(points_xy, half_width: float, n_waypoints: int = 150,
     pts = np.asarray(points_xy, dtype=np.float64)
     if pts.ndim != 2 or pts.shape[1] != 2 or len(pts) < 3:
         raise ValueError("points_xy must be (P, 2) with P >= 3")
+    pts = _as_ccw(pts)                        # canonical winding for offsets
 
     # Chaikin corner cutting on the CLOSED polygon
     for _ in range(smooth_passes):
@@ -101,6 +121,7 @@ def route_from_waypoints(waypoints_xy, width: float,
         raise ValueError("waypoints_xy must be (P, 2) with P >= 3")
     if np.allclose(pts[0], pts[-1]):
         pts = pts[:-1]                        # closed automatically
+    pts = _as_ccw(pts)                        # canonical winding for offsets
 
     seg = np.linalg.norm(np.roll(pts, -1, axis=0) - pts, axis=1)
     cum = np.concatenate([[0.0], np.cumsum(seg)])
@@ -164,6 +185,220 @@ def track_metrics(route: np.ndarray) -> dict:
                         round(float(hi[1] - lo[1]), 2)),
         "min_turn_radius_m": round(1.0 / max_k, 2) if max_k > 1e-6 else float("inf"),
     }
+
+
+def stadium(straight: float, radius: float, arc_pts: int = 60,
+            straight_pts: int = 20) -> np.ndarray:
+    """Centerline of a stadium ("stretched-oval" / pill): two straights joined
+    by semicircular ends, centered on the origin and wound counterclockwise.
+
+    Footprint tips for fitting a room: with track ``width`` the centerline
+    spans ``(straight + 2*radius) x (2*radius)`` and the paved footprint adds
+    ``width`` to each dimension, so keep ``straight + 2*radius + width`` and
+    ``2*radius + width`` within the floor. Tighter ends (smaller ``radius``,
+    longer ``straight``) read as a longer pill; ``radius`` sets the centerline
+    turn radius and must exceed ``width / 2`` or the inner border self-pinches.
+
+    Args:
+        straight: Length of each straight section in meters.
+        radius: Semicircle end radius (the centerline turn radius) in meters.
+        arc_pts: Samples per semicircular end.
+        straight_pts: Samples per straight section.
+
+    Returns:
+        (P, 2) centerline points ready for :func:`route_from_waypoints`.
+    """
+    L, r = straight, radius
+    bottom = np.stack([np.linspace(-L / 2, L / 2, straight_pts, endpoint=False),
+                       np.full(straight_pts, -r)], axis=1)
+    a = np.linspace(-np.pi / 2, np.pi / 2, arc_pts, endpoint=False)
+    right = np.stack([L / 2 + r * np.cos(a), r * np.sin(a)], axis=1)
+    top = np.stack([np.linspace(L / 2, -L / 2, straight_pts, endpoint=False),
+                    np.full(straight_pts, r)], axis=1)
+    a2 = np.linspace(np.pi / 2, 3 * np.pi / 2, arc_pts, endpoint=False)
+    left = np.stack([-L / 2 + r * np.cos(a2), r * np.sin(a2)], axis=1)
+    return np.concatenate([bottom, right, top, left], axis=0)
+
+
+def _rgb(c):
+    """Normalize a (0-255) RGB tuple to matplotlib 0-1 floats (pass through str)."""
+    return c if isinstance(c, str) else tuple(v / 255 for v in c)
+
+
+def _close(poly: np.ndarray) -> np.ndarray:
+    """Repeat the first vertex so a fill/plot closes the loop cleanly."""
+    return np.vstack([poly, poly[:1]])
+
+
+def _dash_quads(center: np.ndarray, nrm: np.ndarray, dash_len: float,
+                dash_gap: float, half_thick: float):
+    """Yield (x, y) polygons for centerline dashes laid out in meters.
+
+    Walks the closed centerline by arclength, emitting one rectangle per dash
+    (length ``dash_len`` along travel, ``2*half_thick`` across it), matching how
+    :func:`build_track_mesh` bakes the dashed centerline into the road mesh.
+
+    Args:
+        center: (W, 2) centerline points.
+        nrm: (W, 2) unit normals (across-road direction) per point.
+        dash_len: Dash length in meters.
+        dash_gap: Gap between dashes in meters.
+        half_thick: Half the dash thickness in meters.
+
+    Yields:
+        (xs, ys) vertex arrays for each dash quad, ready for ``ax.fill``.
+    """
+    seg = np.linalg.norm(np.roll(center, -1, axis=0) - center, axis=1)
+    cum = np.concatenate([[0.0], np.cumsum(seg)])
+    total = float(cum[-1])
+    w = len(center)
+
+    def at(s):
+        s %= total
+        i = int(np.clip(np.searchsorted(cum, s, side="right") - 1, 0, w - 1))
+        j = (i + 1) % w
+        f = (s - cum[i]) / max(seg[i], 1e-9)
+        return center[i] * (1 - f) + center[j] * f, nrm[i]
+
+    s = 0.0
+    while s < total:
+        pa, na = at(s)
+        pb, nb = at(min(s + dash_len, total))
+        quad = np.array([pa + na * half_thick, pa - na * half_thick,
+                         pb - nb * half_thick, pb + nb * half_thick])
+        yield quad[:, 0], quad[:, 1]
+        s += dash_len + dash_gap
+
+
+def plot_track(route: np.ndarray, *, out_path: Optional[str] = None,
+               ax=None, room=None, show_centerline: bool = True,
+               border_strip: float = 0.04, dash_len: float = 0.30,
+               dash_gap: float = 0.35, centerline_width: float = 0.05,
+               dpi: int = 300,
+               grass=(92, 138, 92), asphalt=_PALETTE["road"],
+               border=_PALETTE["border"], centerline=_PALETTE["centerline"]):
+    """Render a clean, chrome-free top-down of the track for printing.
+
+    Layers grass over the whole frame, a white border strip on each edge of the
+    black asphalt ribbon, the grass infield, and an optional dashed centerline.
+    No axes, ticks, title, or margins — just the track.
+
+    Args:
+        route: (W, 6) route array ([center, inner, outer] per waypoint).
+        out_path: If given, save here (``.png`` raster or ``.pdf``/``.svg``
+            vector for scalable printing); the grass fills the whole canvas.
+        ax: Existing matplotlib Axes to draw on; a new figure is made if None.
+        room: Optional (width, height) in meters. When given, the view is
+            framed to the whole floor (track centered), so the grass margin
+            around the track is visible; otherwise it crops tight to the track.
+        show_centerline: Draw the dashed centerline.
+        border_strip: Width of the white edge strips in meters (matches the
+            installed mesh's border lines by default).
+        dash_len: Centerline dash length in meters (matches the mesh default).
+        dash_gap: Gap between centerline dashes in meters.
+        centerline_width: Centerline dash thickness in meters.
+        dpi: Raster resolution when saving to a pixel format.
+        grass: Infield/background color (RGB 0-255 tuple or matplotlib color).
+        asphalt: Road color.
+        border: Border-strip color.
+        centerline: Centerline dash color.
+
+    Returns:
+        (fig, ax) for further tweaking or saving by the caller.
+    """
+    import matplotlib.pyplot as plt
+
+    grass, asphalt, border, centerline = (
+        _rgb(grass), _rgb(asphalt), _rgb(border), _rgb(centerline))
+    center, inner, outer = route[:, 0:2], route[:, 2:4], route[:, 4:6]
+    nrm = outer - center
+    nrm /= np.maximum(np.linalg.norm(nrm, axis=1, keepdims=True), 1e-9)
+    outer_plus = outer + nrm * border_strip
+    inner_minus = inner - nrm * border_strip
+
+    span = np.asarray(room, dtype=float) if room is not None else (
+        outer_plus.max(axis=0) - outer_plus.min(axis=0))
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 12 * span[1] / span[0]))
+    else:
+        fig = ax.figure
+    fig.patch.set_facecolor(grass)
+    ax.set_facecolor(grass)
+
+    ax.fill(*_close(outer_plus).T, color=border)      # outer white strip
+    ax.fill(*_close(outer).T, color=asphalt)          # asphalt ribbon
+    ax.fill(*_close(inner).T, color=border)            # inner white strip
+    ax.fill(*_close(inner_minus).T, color=grass)       # grass infield
+    if show_centerline:
+        for xs, ys in _dash_quads(center, nrm, dash_len, dash_gap,
+                                  centerline_width / 2):
+            ax.fill(xs, ys, color=centerline)
+
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.margins(0)
+    if room is not None:
+        rw, rh = room
+        ax.set_xlim(-rw / 2, rw / 2)
+        ax.set_ylim(-rh / 2, rh / 2)
+    if out_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        fig.savefig(out_path, dpi=dpi, facecolor=grass,
+                    bbox_inches="tight", pad_inches=0)
+    return fig, ax
+
+
+def plot_wireframe(route: np.ndarray, waypoints=None, *,
+                   out_path: Optional[str] = None, ax=None, room=None,
+                   dpi: int = 200):
+    """Render an inspection wireframe: border/centerline outlines, waypoint
+    dots, a start marker, and a driving-direction arrow, with axes in meters.
+
+    Args:
+        route: (W, 6) route array ([center, inner, outer] per waypoint).
+        waypoints: Optional (P, 2) source waypoints to mark; falls back to the
+            route centerline. Dots are thinned for legibility.
+        out_path: If given, save the figure here.
+        ax: Existing matplotlib Axes; a new figure is made if None.
+        room: Optional (width, height) in meters, drawn as a dashed floor
+            boundary centered on the origin.
+        dpi: Raster resolution when saving.
+
+    Returns:
+        (fig, ax) for further tweaking or saving by the caller.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import Rectangle
+
+    center, inner, outer = route[:, 0:2], route[:, 2:4], route[:, 4:6]
+    wp = center if waypoints is None else np.asarray(waypoints, dtype=float)
+    step = max(1, len(wp) // 40)
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(12, 6.5))
+    else:
+        fig = ax.figure
+    ax.plot(*_close(inner).T, color=_rgb(_PALETTE["road"]), lw=1.0, label="inner border")
+    ax.plot(*_close(outer).T, color=_rgb(_PALETTE["road"]), lw=1.0, label="outer border")
+    ax.plot(*_close(center).T, "--", color=_rgb(_PALETTE["centerline"]), lw=1.0,
+            label="centerline")
+    ax.plot(wp[::step, 0], wp[::step, 1], "o", color="tomato", ms=4, label="waypoints")
+    ax.plot(*wp[0], "s", color="red", ms=9, label="start")
+    ax.annotate("", xy=wp[min(3, len(wp) - 1)], xytext=wp[0],
+                arrowprops=dict(arrowstyle="->", color="red", lw=2))
+    if room is not None:
+        rw, rh = room
+        ax.add_patch(Rectangle((-rw / 2, -rh / 2), rw, rh, fill=False,
+                               ec="#bbb", lw=1.0, ls="--"))
+    ax.set_aspect("equal")
+    ax.grid(True, ls=":", alpha=0.5)
+    ax.set_xlabel("meters")
+    ax.set_ylabel("meters")
+    ax.legend(loc="upper right", fontsize=8)
+    if out_path is not None:
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+    return fig, ax
 
 
 def _quad(f, base, flip):

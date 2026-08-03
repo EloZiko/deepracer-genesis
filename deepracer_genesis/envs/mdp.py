@@ -5,6 +5,7 @@ Each function reads the live env's per-step attributes and writes its per-env bu
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 import torch
@@ -13,6 +14,30 @@ from . import rules
 
 if TYPE_CHECKING:
     from .deepracer_env import DeepRacerEnv
+
+
+def map_action(env: "DeepRacerEnv") -> tuple[torch.Tensor, torch.Tensor]:
+    """Map the normalized ``[-1, 1]`` action to physical steering and speed.
+
+    Reads the per-experiment action caps from ``env.cfg["action"]`` (whose
+    defaults are sourced from :mod:`~deepracer_genesis.physics.limits`), so an
+    experiment can widen or narrow the control envelope without touching the
+    immutable limits. The Ackermann/parallel split of the returned center angle
+    happens downstream in :meth:`~deepracer_genesis.envs.entities.Car.drive`.
+
+    Args:
+        env: The live env; reads ``actions`` ``(N, 2)`` in ``[-1, 1]`` and the
+            ``max_steering_deg`` / ``min_speed`` / ``max_speed`` action caps.
+
+    Returns:
+        ``(steer, speed)``, each ``(N, 1)``: the commanded center steering angle
+        in radians (positive = left) and the forward speed in m/s.
+    """
+    act = env.cfg["action"]
+    steer = env.actions[:, 0:1] * math.radians(act["max_steering_deg"])
+    speed = act["min_speed"] + (env.actions[:, 1:2] + 1) * 0.5 * (
+        act["max_speed"] - act["min_speed"])
+    return steer, speed
 
 
 def compute_reward(env: "DeepRacerEnv") -> None:

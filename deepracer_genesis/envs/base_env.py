@@ -183,6 +183,24 @@ class DeepRacerEnv:
         No-op on the base env; vision subclasses render the current frame here.
         """
 
+    def _finalize_obs(self) -> None:
+        """Apply once-per-step observation transforms (subclass hook).
+
+        No-op on the base env. Called exactly once per :meth:`step`, after any
+        auto-reset re-render, so vision subclasses can apply stateful obs DR
+        (camera latency / frame drop) without double-advancing on reset steps.
+        """
+
+    def _reset_obs_dr(self, env_ids: torch.Tensor) -> None:
+        """Clear stateful observation DR for respawned envs (subclass hook).
+
+        No-op on the base env; vision subclasses reset per-env camera-latency
+        history so a fresh episode does not observe a pre-reset frame.
+
+        Args:
+            env_ids: Indices of the envs that were just respawned.
+        """
+
     def _obs_groups(self) -> dict:
         """Assemble the observation groups exposed by :meth:`get_observations`.
 
@@ -346,10 +364,7 @@ class DeepRacerEnv:
         self.actions = torch.clip(actions, -1.0, 1.0)
         if self.action_dr:
             self.actions = self._apply_action_dr(self.actions)
-        act = self.cfg["action"]
-        steer = self.actions[:, 0:1] * math.radians(act["max_steering_deg"])
-        speed = act["min_speed"] + (self.actions[:, 1:2] + 1) * 0.5 * (
-            act["max_speed"] - act["min_speed"])
+        steer, speed = mdp.map_action(self)
         self.car.drive(steer, speed)
         for _ in range(self.cfg["sim"]["decimation"]):
             self.scene.step()
@@ -380,6 +395,7 @@ class DeepRacerEnv:
             self._post_physics(env_ids)
 
         self.last_actions[:] = self.actions
+        self._finalize_obs()   # once-per-step obs hook (e.g. camera latency DR)
         self.extras["time_outs"] = self.time_out_buf
         # No genesis<->torch stream fence needed: quadrants and torch both run on
         # the legacy NULL stream (stream 0), so allocator reuse is stream-ordered
@@ -503,6 +519,7 @@ class DeepRacerEnv:
         if self._act_delay > 0:              # clear delayed commands on reset
             self._act_buf[env_ids] = 0.0
         self.feature_set.reset(env_ids)   # clear any per-env feature history
+        self._reset_obs_dr(env_ids)       # clear stateful obs DR (camera latency)
         self.progress_m[env_ids] = self.track.localize(pos_xy, envs_idx=env_ids)["progress_m"]
 
     # ----------------------------------------------------------- observations

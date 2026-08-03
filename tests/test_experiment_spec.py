@@ -66,6 +66,30 @@ def test_env1_builds_expected_spec():
     assert not spec.algorithm.requires_cost     # inferred: no cost signal
 
 
+def test_pixel_noise_and_temporal_dr_flow_to_cfg():
+    from deepracer_genesis.experiment.builder import Builder
+    spec = (
+        CameraEnvironment(render="madrona", resolution=(160, 120))
+        >> DomainRandomizationCamera(pixel_noise=0.03, latency_steps=2, frame_drop=0.05)
+        >> AsymmetricCameraPolicy(actor_keys=("camera",), critic_keys=("camera", "state"))
+    ).build(seed=0)
+    assert spec.obs_dr.pixel_noise == 0.03
+    assert spec.obs_dr.image_aug["latency_steps"] == 2
+    assert spec.obs_dr.image_aug["frame_drop"] == 0.05
+    cfg = Builder(spec).sim_cfg()
+    assert cfg["vision"]["pixel_noise"] == 0.03           # reachable from the DSL now
+
+
+def test_pixel_noise_requires_camera_env():
+    pipe = (
+        FeatureEnvironment()
+        >> DomainRandomizationCamera(pixel_noise=0.02)
+        >> VectorPolicy(keys=("state",))
+    )
+    with pytest.raises(SpecError, match="camera env"):
+        pipe.build(seed=0)
+
+
 def test_env2_builds_expected_spec():
     spec = env2_pipeline().build(seed=0)
     assert spec.env.emits_cost is True

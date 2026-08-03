@@ -94,6 +94,8 @@ class ObsDRSpec:
         camera_jitter: per-render camera pose/intrinsics jitter.
         physics: physics parameter overrides applied env-side at reset.
         appearance: per-env, per-episode color remap of the rendered scene.
+        pixel_noise: gaussian per-pixel noise scale added in the render path
+            (0 = off); the catalogued ``vision.pixel_noise`` visual knob.
     """
 
     image_aug: dict = field(default_factory=dict)
@@ -102,6 +104,7 @@ class ObsDRSpec:
     # per-env, per-episode color remap of the rendered observation
     # ({"world_color": strength}); see DomainRandomizationTrackAppearance
     appearance: dict = field(default_factory=dict)
+    pixel_noise: float = 0.0                       # gaussian render-path noise
 
 
 @dataclass(frozen=True)
@@ -302,6 +305,10 @@ class ExperimentSpec:
                 bad cost_fn/cost_budget.
         """
         env = self.env
+        from ..tracks import exists, names
+        for t in env.tracks:
+            if not exists(t):
+                raise SpecError("unknown track %r; available: %s" % (t, names()))
         match env.modality:
             case "feature" if env.render != "none":
                 raise SpecError("feature envs do not render; got render=%r" % env.render)
@@ -408,7 +415,8 @@ class ExperimentSpec:
                 "track meshes load into every env (render + memory scale ~K); "
                 "benchmark aggregate steps/sec before scaling the track count"
                 % len(env.tracks), stacklevel=2)
-        if (obs_dr.image_aug or obs_dr.camera_jitter) and env.modality != "camera":
+        if (obs_dr.image_aug or obs_dr.camera_jitter or obs_dr.pixel_noise) \
+                and env.modality != "camera":
             raise SpecError("DomainRandomizationCamera requires a camera env")
 
     def _validate_action_dr(self) -> None:

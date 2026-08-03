@@ -88,6 +88,23 @@ CATALOG: list[Knob] = [
          ("camera",), "IQ-plane rotation fraction"),
     Knob("blur", FloatRange(0.0, 0.5), "image", "obs_dr.image_aug.blur",
          ("camera",), "max gaussian sigma"),
+    # ---- image: photometric / geometric sensor block (Part P.2) ----
+    Knob("gamma", FloatRange(0.7, 1.5), "image", "obs_dr.image_aug.gamma",
+         ("camera",), "exposure/tone curve (render has no auto-exposure)"),
+    Knob("white_balance", SymRange(0.1), "image", "obs_dr.image_aug.white_balance",
+         ("camera",), "per-channel gain magnitude; colour cast + R<->G insurance"),
+    Knob("vignette", FloatRange(0.0, 0.4), "image", "obs_dr.image_aug.vignette",
+         ("camera",), "max radial corner darkening"),
+    Knob("distortion", SymRange(0.15), "image", "obs_dr.image_aug.distortion",
+         ("camera",), "wide-angle barrel/pincushion coefficient"),
+    Knob("shot_noise", FloatRange(0.0, 0.05), "image", "obs_dr.image_aug.shot_noise",
+         ("camera",), "brightness-dependent (sqrt-intensity) sensor noise"),
+    # ---- image: temporal (stateful, applied env-side once per step) ----
+    Knob("latency_steps", IntRange(0, 2), "image", "obs_dr.image_aug.latency_steps",
+         ("camera",), "camera pipeline delay in control steps (likely the "
+         "largest untreated sim2real gap for a 4 m/s car)"),
+    Knob("frame_drop", FloatRange(0.0, 0.1), "image", "obs_dr.image_aug.frame_drop",
+         ("camera",), "per-step probability of repeating the previous frame"),
 ]
 
 # convenience index by name

@@ -31,6 +31,14 @@ class VisionDeepRacerEnv(DeepRacerEnv):
         self.image_buf = torch.zeros(self.num_envs, 3, h, w, device=self.device)
         # policy may train below render resolution (demo videos); render() sets both
         self.obs_image_buf = self.image_buf
+        # stateful temporal DR (camera latency / frame drop); None when disabled
+        lat = int(self.image_aug.get("latency_steps", 0))
+        drop = float(self.image_aug.get("frame_drop", 0.0))
+        if lat or drop:
+            from ..randomization.latency import FrameLatency
+            self._frame_latency = FrameLatency(self.num_envs, lat, drop, self.device)
+        else:
+            self._frame_latency = None
 
     def _observe_camera(self) -> None:
         """Refresh the camera buffers from the renderer for the current state.
@@ -41,6 +49,20 @@ class VisionDeepRacerEnv(DeepRacerEnv):
         if self.image_aug:
             from ..randomization.image_aug import apply_image_aug
             self.obs_image_buf = apply_image_aug(self.obs_image_buf, self.image_aug)
+
+    def _finalize_obs(self) -> None:
+        """Advance the camera-latency buffer once for the step's final frame.
+
+        Runs after any auto-reset re-render, so the delayed frame the policy
+        sees reflects the buffer state exactly one step forward.
+        """
+        if self._frame_latency is not None:
+            self.obs_image_buf = self._frame_latency.advance(self.obs_image_buf)
+
+    def _reset_obs_dr(self, env_ids: torch.Tensor) -> None:
+        """Drop camera-latency history for respawned envs (no cross-episode bleed)."""
+        if self._frame_latency is not None:
+            self._frame_latency.reset(env_ids)
 
     def _obs_groups(self) -> dict:
         """Assemble the observation groups, adding the ``camera`` frame.

@@ -1,0 +1,211 @@
+{
+  "spec_id": "bcd51a265d91",
+  "spec": {
+    "env": {
+      "modality": "feature",
+      "render": "none",
+      "backend": "gpu",
+      "view": "gui",
+      "realtime_factor": 0,
+      "resolution": [
+        160,
+        120
+      ],
+      "fov": 90.0,
+      "lookahead_k": 10,
+      "feature_set": null,
+      "feature_params": {},
+      "tracks": [
+        "Singapore",
+        "Spain_track",
+        "Straight_track",
+        "Tokyo_Training_track",
+        "Vegas_track",
+        "reInvent2019_track"
+      ],
+      "num_envs": 256,
+      "random_start": true,
+      "random_direction": false,
+      "reward": null,
+      "reward_scales": {},
+      "emits_cost": false,
+      "cost_fn": null,
+      "cost_budget": null
+    },
+    "obs_dr": {
+      "image_aug": {},
+      "camera_jitter": {},
+      "physics": {},
+      "appearance": {}
+    },
+    "encoder": {
+      "kind": "none",
+      "checkpoint": null,
+      "output_dim": null,
+      "layer": null,
+      "out_key": "encoded"
+    },
+    "policy": {
+      "actor_keys": [
+        "state"
+      ],
+      "critic_keys": [
+        "state"
+      ],
+      "cnn": null,
+      "mlp": {
+        "hidden": [
+          256,
+          128,
+          64
+        ],
+        "activation": "elu"
+      },
+      "actions": null
+    },
+    "action_dr": {
+      "steer_noise": 0.0,
+      "speed_noise": 0.0,
+      "delay_steps": 0
+    },
+    "algorithm": {
+      "cls": null,
+      "ppo": {
+        "clip": 0.2,
+        "epochs": 5,
+        "minibatches": 4,
+        "gamma": 0.99,
+        "gae_lambda": 0.95,
+        "lr": 0.0003,
+        "entropy_coef": 0.01,
+        "max_grad_norm": 1.0,
+        "horizon": 24
+      },
+      "lagrangian": {},
+      "params": {}
+    },
+    "eval": {
+      "real_tracks": [
+        "reinvent_base",
+        "Oval_track"
+      ],
+      "eval_num_envs": 32,
+      "eval_episodes": null,
+      "charts": true
+    },
+    "total_env_steps": 3000000,
+    "eval_every_steps": 500000,
+    "seed": 0,
+    "ablation_group": null,
+    "variant": "feature_vector_proof"
+  },
+  "seed": 0,
+  "ablation_group": null,
+  "variant": "feature_vector_proof",
+  "metrics": {
+    "episodes": 939,
+    "mean_return": 168.30654907226562,
+    "mean_progress_m": 16.940404891967773,
+    "mean_episode_s": 8.383684158325195,
+    "completion_rate": 0.16932907700538635,
+    "mean_laps": 0.5752062797546387,
+    "offtrack_rate": 1.0,
+    "lap_time_s": 9.077715873718262,
+    "mean_speed_mps": 1.919456958770752
+  },
+  "train": {
+    "wall_clock_s": 285.5,
+    "total_env_steps": 2998272,
+    "steps_per_s": 10500.6,
+    "checkpoint": "runs/default/feature_vector_proof-0-bcd51a265d91/model.pt",
+    "backend": "rsl_rl"
+  },
+  "eval_history": [
+    {
+      "frames": 497664,
+      "episodes": 1739,
+      "mean_return": 77.60273742675781,
+      "mean_progress_m": 8.227783203125,
+      "mean_episode_s": 4.865244388580322,
+      "completion_rate": 0.0011500862892717123,
+      "mean_laps": 0.2947501838207245,
+      "offtrack_rate": 1.0,
+      "lap_time_s": 8.966182708740234,
+      "mean_speed_mps": 1.5268759727478027
+    },
+    {
+      "frames": 995328,
+      "episodes": 1111,
+      "mean_return": 138.2038116455078,
+      "mean_progress_m": 13.958325386047363,
+      "mean_episode_s": 7.047020435333252,
+      "completion_rate": 0.11251125484704971,
+      "mean_laps": 0.4834815263748169,
+      "offtrack_rate": 0.9954995512962341,
+      "lap_time_s": 9.024274826049805,
+      "mean_speed_mps": 1.5889087915420532
+    },
+    {
+      "frames": 1492992,
+      "episodes": 903,
+      "mean_return": 172.8080596923828,
+      "mean_progress_m": 17.26258659362793,
+      "mean_episode_s": 8.237607955932617,
+      "completion_rate": 0.17386490106582642,
+      "mean_laps": 0.6097069978713989,
+      "offtrack_rate": 0.9822812676429749,
+      "lap_time_s": 9.736512184143066,
+      "mean_speed_mps": 1.7125786542892456
+    },
+    {
+      "frames": 1990656,
+      "episodes": 1069,
+      "mean_return": 151.8956756591797,
+      "mean_progress_m": 15.294041633605957,
+      "mean_episode_s": 7.254761219024658,
+      "completion_rate": 0.15060804784297943,
+      "mean_laps": 0.5400612354278564,
+      "offtrack_rate": 0.9943872690200806,
+      "lap_time_s": 9.617806434631348,
+      "mean_speed_mps": 1.606690764427185
+    },
+    {
+      "frames": 2488320,
+      "episodes": 954,
+      "mean_return": 167.86460876464844,
+      "mean_progress_m": 16.80654525756836,
+      "mean_episode_s": 8.14693832397461,
+      "completion_rate": 0.17505240440368652,
+      "mean_laps": 0.5822227597236633,
+      "offtrack_rate": 0.9999999403953552,
+      "lap_time_s": 9.720199584960938,
+      "mean_speed_mps": 1.8014097213745117
+    },
+    {
+      "frames": 2985984,
+      "episodes": 931,
+      "mean_return": 170.8284454345703,
+      "mean_progress_m": 17.16590118408203,
+      "mean_episode_s": 8.458216667175293,
+      "completion_rate": 0.17615467309951782,
+      "mean_laps": 0.5782743096351624,
+      "offtrack_rate": 1.0,
+      "lap_time_s": 9.26372241973877,
+      "mean_speed_mps": 1.910849690437317
+    },
+    {
+      "frames": 2998272,
+      "episodes": 937,
+      "mean_return": 169.04214477539062,
+      "mean_progress_m": 17.009265899658203,
+      "mean_episode_s": 8.446210861206055,
+      "completion_rate": 0.17716114223003387,
+      "mean_laps": 0.5766721963882446,
+      "offtrack_rate": 1.0,
+      "lap_time_s": 9.225543975830078,
+      "mean_speed_mps": 1.9113295078277588
+    }
+  ],
+  "holdout": {},
+  "created_at": "2026-07-28T19:30:35"
+}

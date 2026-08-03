@@ -71,6 +71,8 @@ class Builder:
             cfg["rand"] = rand
         if obs_dr.appearance:
             cfg["vision"]["appearance"] = dict(obs_dr.appearance)
+        if obs_dr.pixel_noise:
+            cfg["vision"]["pixel_noise"] = obs_dr.pixel_noise
         if self.spec.policy is not None and self.spec.policy.actions:
             cfg["action"]["action_table"] = [list(a) for a in self.spec.policy.actions]
         if env.emits_cost:

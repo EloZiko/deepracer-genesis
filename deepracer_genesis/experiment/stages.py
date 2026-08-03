@@ -337,6 +337,18 @@ class DomainRandomizationCamera(Stage):
         blur: Blur augmentation strength.
         cutout: Probability of a cutout patch per frame.
         noise: Additive Gaussian noise sigma.
+        gamma: Random gamma/exposure curve range, or None to skip (models the
+            render's lack of auto-exposure).
+        white_balance: Per-channel gain magnitude (colour cast; also insures
+            against the documented Madrona R<->G swap).
+        vignette: Max radial corner-darkening strength in [0, 1].
+        distortion: Max |radial| barrel/pincushion coefficient (wide-angle lens).
+        shot_noise: Brightness-dependent (sqrt-intensity) sensor noise scale.
+        latency_steps: Camera pipeline delay in control steps (stateful; the
+            policy sees the frame from this many steps ago).
+        frame_drop: Per-step probability of repeating the previous frame (a
+            dropped/stale sensor read; stateful).
+        pixel_noise: Gaussian per-pixel noise scale added in the render path.
         camera_jitter: Enable/override per-episode camera pose jitter.
         KIND: Stage category tag (obs_dr_camera).
     """
@@ -348,27 +360,43 @@ class DomainRandomizationCamera(Stage):
     blur: float = 0.0
     cutout: float = 0.0            # probability of a cutout patch per frame
     noise: float = 0.0             # additive gaussian sigma
+    gamma: Optional[tuple[float, float]] = None
+    white_balance: float = 0.0     # per-channel gain magnitude
+    vignette: float = 0.0          # max corner-darkening strength
+    distortion: float = 0.0        # max |radial| barrel coefficient
+    shot_noise: float = 0.0        # sqrt-intensity sensor noise scale
+    latency_steps: int = 0         # camera pipeline delay in steps (stateful)
+    frame_drop: float = 0.0        # prob of repeating the previous frame (stateful)
+    pixel_noise: float = 0.0       # gaussian render-path noise (renderer applies)
     camera_jitter: bool | dict = False
 
     KIND = "obs_dr_camera"
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
         aug = {}
-        if self.brightness: aug["brightness"] = tuple(self.brightness)
-        if self.contrast:   aug["contrast"] = tuple(self.contrast)
-        if self.saturation: aug["saturation"] = tuple(self.saturation)
-        if self.hue:        aug["hue"] = self.hue
-        if self.blur:       aug["blur"] = self.blur
-        if self.cutout:     aug["cutout"] = self.cutout
-        if self.noise:      aug["noise"] = self.noise
+        if self.brightness:    aug["brightness"] = tuple(self.brightness)
+        if self.contrast:      aug["contrast"] = tuple(self.contrast)
+        if self.saturation:    aug["saturation"] = tuple(self.saturation)
+        if self.hue:           aug["hue"] = self.hue
+        if self.blur:          aug["blur"] = self.blur
+        if self.cutout:        aug["cutout"] = self.cutout
+        if self.noise:         aug["noise"] = self.noise
+        if self.gamma:         aug["gamma"] = tuple(self.gamma)
+        if self.white_balance: aug["white_balance"] = self.white_balance
+        if self.vignette:      aug["vignette"] = self.vignette
+        if self.distortion:    aug["distortion"] = self.distortion
+        if self.shot_noise:    aug["shot_noise"] = self.shot_noise
+        if self.latency_steps: aug["latency_steps"] = self.latency_steps
+        if self.frame_drop:    aug["frame_drop"] = self.frame_drop
         if self.camera_jitter is True:
             jitter = {"pitch_deg": 2.0, "pos_m": 0.005}
         elif isinstance(self.camera_jitter, dict):
             jitter = dict(self.camera_jitter)
         else:
             jitter = {}
-        return replace(spec, obs_dr=replace(spec.obs_dr,
-                                            image_aug=aug, camera_jitter=jitter))
+        return replace(spec, obs_dr=replace(spec.obs_dr, image_aug=aug,
+                                            camera_jitter=jitter,
+                                            pixel_noise=self.pixel_noise))
 
 
 @dataclass(frozen=True)
