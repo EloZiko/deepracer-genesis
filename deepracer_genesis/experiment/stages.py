@@ -317,17 +317,27 @@ class DomainRandomizationTrackAppearance(Stage):
 
     Attributes:
         strength: Magnitude in [0, 1] scaling all color-remap ranges.
+        env_map_tint: Per-env Nyx sky-tint range ``(lo, hi)``, or None (Part P.1;
+            baked at build -> per-env-fixed, per run).
+        env_map_multiplier: Per-env Nyx sky exposure range ``(lo, hi)``, or None.
         KIND: Stage category tag (obs_dr_appearance).
     """
 
     strength: float = 0.6
+    env_map_tint: Optional[tuple[float, float]] = None
+    env_map_multiplier: Optional[tuple[float, float]] = None
 
     KIND = "obs_dr_appearance"
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
+        env_map = {}
+        if self.env_map_tint:
+            env_map["tint"] = tuple(self.env_map_tint)
+        if self.env_map_multiplier:
+            env_map["multiplier"] = tuple(self.env_map_multiplier)
         return replace(spec, obs_dr=replace(spec.obs_dr, appearance={
             "world_color": float(self.strength),
-        }))
+        }, env_map=env_map))
 
 
 @dataclass(frozen=True)

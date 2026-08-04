@@ -30,7 +30,7 @@ def test_default_reward_declares_reads():
     r = reward_reads(deepracer)
     assert r == frozenset({
         "d_progress", "v_forward", "lateral", "half_width", "heading_err",
-        "actions", "action_rate", "off_track"})
+        "actions", "action_rate", "off_track", "up_z"})
 
 
 def test_undeclared_custom_reward_reads_empty():

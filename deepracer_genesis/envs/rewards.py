@@ -65,8 +65,11 @@ def cost_reads(cost_fn: "str | None") -> "frozenset[str]":
     return COST_READS.get(cost_fn or "", frozenset())
 
 
+# up_z is read by the flip terminal penalty the DEFAULT (non-cost) path adds in
+# mdp.check_termination — declared here so the K.5 trace covers the effective
+# reward, not just the terms this fn returns (the CMDP path models it via COST_READS).
 @reads("d_progress", "v_forward", "lateral", "half_width", "heading_err",
-       "actions", "action_rate", "off_track")
+       "actions", "action_rate", "off_track", "up_z")
 def deepracer(env: "DeepRacerEnv") -> dict[str, torch.Tensor]:
     """Compute the built-in DeepRacer shaping: progress-dominated with stability.
 
@@ -83,8 +86,10 @@ def deepracer(env: "DeepRacerEnv") -> dict[str, torch.Tensor]:
 
     Note:
         Declares ``reads`` = {d_progress, v_forward, lateral, half_width,
-        heading_err, actions, action_rate, off_track} (Part K.4) so the K.5
-        build-time check can verify these signals are critic-visible.
+        heading_err, actions, action_rate, off_track, up_z} (Part K.4) so the
+        K.5 build-time check can verify these signals are critic-visible.
+        ``up_z`` is not a term this fn returns — it is read by the flip terminal
+        penalty ``mdp.check_termination`` adds on the default (non-cost) path.
     """
     on_track = env.lateral.abs() < (env.half_width - env.cfg["termination"]["wheel_margin"])
     return {
