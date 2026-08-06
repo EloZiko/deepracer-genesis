@@ -517,6 +517,18 @@ class ExperimentSpec:
         env, algo = self.env, self.algorithm
         if algo is None:
             raise SpecError("algorithm missing: build() must run _infer_algorithm")
+        if algo.cls is not None:
+            # a custom Algo(cls=...) must speak the rsl-rl runner interface, or it
+            # would fail cryptically deep inside OnPolicyRunner — check up front.
+            from ..algorithms.protocol import missing_algorithm_methods
+            missing = missing_algorithm_methods(algo.cls)
+            if missing:
+                raise SpecError(
+                    "custom algorithm %s is missing rsl-rl interface method(s) %s; "
+                    "implement algorithms.protocol.RslAlgorithm (subclassing "
+                    "rsl_rl.algorithms.PPO and overriding compute_returns/update is "
+                    "the easy path)"
+                    % (getattr(algo.cls, "__name__", algo.cls), missing))
         if algo.requires_cost:
             if not env.emits_cost:
                 raise SpecError(

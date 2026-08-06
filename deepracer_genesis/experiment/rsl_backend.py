@@ -105,6 +105,12 @@ def spec_to_train_cfg(spec: "ExperimentSpec") -> dict:
             cfg["algorithm"][theirs] = ppo[ours]
     if "horizon" in ppo:
         cfg["num_steps_per_env"] = ppo["horizon"]
+    # Custom algorithm (Algo(cls=...)): rsl-rl's OnPolicyRunner resolves
+    # cfg["algorithm"]["class_name"] via resolve_callable, which accepts a class
+    # OBJECT directly — so the custom class plugs into the SAME runner PPO uses
+    # (it must speak algorithms.protocol.RslAlgorithm; spec.validate checks that).
+    if spec.algorithm.cls is not None:
+        cfg["algorithm"]["class_name"] = spec.algorithm.cls
     return cfg
 
 

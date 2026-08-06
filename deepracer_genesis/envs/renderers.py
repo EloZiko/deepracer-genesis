@@ -17,6 +17,7 @@ import genesis as gs
 # application site that imports and calls them (Part L).
 from ..randomization.visual import (  # noqa: E402
     add_pixel_noise,
+    sample_env_map,
     sample_mount_transforms,
     sample_world_color,
 )
@@ -637,6 +638,13 @@ class NyxRenderer(_CameraRenderer):
         # frames — bad for RL observations and for validation diffs
         common = dict(spp=int(vision_cfg.get("nyx_spp", 4)), render_mode=mode, lights=[sun],
                       denoise=False, anti_aliasing=nps.EAntiAliasing.Off)
+        # Part P.1: per-env HDRI sky DR. Nyx registers the sensor's env_maps
+        # into the scene at build (indices 0..N-1) and selects env-map i for env
+        # i via set_env_map(env_index) in its render loop — so one texture-less
+        # EnvironmentMapAsset per env is a cheap per-env-fixed sky (baked at
+        # build; not per-episode). Attach to the OBS sensor only so the indices
+        # line up 1:1 with the Genesis env index.
+        env_maps = self._build_env_maps(env, vision_cfg, nps)
         # same link->camera mount transform as the Madrona path (looks along -z
         # of offset_T incl. the downward pitch); sensors ignore pos/euler offset
         self.nyx_cam = env.scene.add_sensor(NyxCameraOptions(
@@ -644,7 +652,7 @@ class NyxRenderer(_CameraRenderer):
             entity_idx=env.car.idx,
             link_idx_local=env.car.get_link("camera_link").idx_local,
             offset_T=camera_offset_T(vision_cfg.get("camera_pitch_deg", 0.0)),
-            **common))
+            env_maps=env_maps, **common))
         self.nyx_top = None
         if vision_cfg.get("topdown_camera", False):
             c, extent = _track_extent(env.track.tracks[0])
@@ -683,3 +691,37 @@ class NyxRenderer(_CameraRenderer):
         """
         assert self.nyx_top is not None
         return self.nyx_top.read().rgb[..., :3]
+
+    @staticmethod
+    def _build_env_maps(env: "DeepRacerEnv", vision_cfg: dict, nps):
+        """Sample one per-env environment map (tint + exposure) for Nyx (P.1).
+
+        Args:
+            env: The env being built (supplies ``num_envs`` and ``device``).
+            vision_cfg: Env config; ``env_map`` gives ``{"tint": (lo, hi),
+                "multiplier": (lo, hi)}`` ranges (either key optional).
+            nps: The ``gs_nyx.nyx_py_sdk`` module (passed in to keep the Nyx
+                import at the single site in :meth:`_build`).
+
+        Returns:
+            A tuple of ``num_envs`` ``EnvironmentMapAsset`` (empty when the
+            ``env_map`` knob is off), one texture-less uniform-radiance sky per
+            env, indexable 1:1 by Genesis env index.
+        """
+        cfg = vision_cfg.get("env_map") or {}
+        if not cfg:
+            return ()
+        kw = {}
+        if cfg.get("tint"):
+            kw["tint_range"] = tuple(cfg["tint"])
+        if cfg.get("multiplier"):
+            kw["mult_range"] = tuple(cfg["multiplier"])
+        tint, mult = sample_env_map(env.num_envs, device=env.device, **kw)
+        tint, mult = tint.tolist(), mult.tolist()
+        maps = []
+        for i in range(env.num_envs):
+            m = nps.EnvironmentMapAsset()
+            m.tint = nps.float3(*tint[i])
+            m.multiplier = float(mult[i])
+            maps.append(m)
+        return tuple(maps)

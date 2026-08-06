@@ -10,7 +10,8 @@ study (``hpo.py``). They blend the axes so you can see each combination:
     CameraMadronaDr     camera, Madrona renderer, full DR, asymmetric
     CameraNyx           camera, Nyx path tracer, light DR
     SafeTransfer        safe-RL camera -> frozen-CNN -> vector, Lagrangian
-    WatchLive           feature vector with the interactive viewer + eval (Parts M/N)
+    WatchLiveFeature    feature vector with the interactive viewer + eval (Parts M/N)
+    WatchLiveCamera     camera(render="madrona") with the interactive viewer + eval
 
 There is no name registry: run an experiment by its class —
 ``FeatureCpu().run()`` or ``run(FeatureCpu)`` — or by its ``module:ClassName``
@@ -20,15 +21,16 @@ path from the CLI. ``examples/hpo.py`` is a study, run as a script.
 from .camera import CameraMadronaDr, CameraNyx
 from .feature_vector import FeatureCpu, FeatureGpuDr
 from .safe_rl import SafeTransfer, SafeTransferTight
-from .watch_live import WatchLive
+from .watch_live import WatchLive, WatchLiveCamera, WatchLiveFeature
 
 #: the reference experiment classes (for convenience / iteration)
 EXAMPLES = (
     FeatureCpu, FeatureGpuDr, CameraMadronaDr, CameraNyx,
-    SafeTransfer, SafeTransferTight, WatchLive,
+    SafeTransfer, SafeTransferTight, WatchLiveFeature, WatchLiveCamera,
 )
 
 __all__ = [
     "FeatureCpu", "FeatureGpuDr", "CameraMadronaDr", "CameraNyx",
-    "SafeTransfer", "SafeTransferTight", "WatchLive", "EXAMPLES",
+    "SafeTransfer", "SafeTransferTight",
+    "WatchLive", "WatchLiveFeature", "WatchLiveCamera", "EXAMPLES",
 ]
