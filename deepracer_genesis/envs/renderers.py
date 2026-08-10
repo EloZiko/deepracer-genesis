@@ -516,17 +516,18 @@ class RasterizerObsRenderer(_CameraRenderer):
     _spectator_debug = False         # no batch pipeline, so no debug camera needed
 
     def _build(self, env: "DeepRacerEnv", vision_cfg: dict) -> None:
-        """Add the directional light and one rasterizer camera per env.
+        """Add one rasterizer camera per env.
+
+        The plain ``Rasterizer`` scene renderer does not support ``add_light``
+        (that is BatchRenderer-only); it lights the scene from the ambient light
+        + background in ``gs.Scene``'s VisOptions, exactly like the spectator /
+        top-down rasterizer views already do — so no explicit light is added.
 
         Args:
-            env: The env being built; its ``scene`` receives the light and the
-                per-env cameras.
-            vision_cfg: Env config; reads ``light_intensity``, ``camera_res``
-                (W, H), ``camera_fov``, and ``topdown_camera``.
+            env: The env being built; its ``scene`` receives the per-env cameras.
+            vision_cfg: Env config; reads ``camera_res`` (W, H), ``camera_fov``,
+                and ``topdown_camera``.
         """
-        env.scene.add_light(pos=(0.0, 0.0, 10.0), dir=(0.4, 0.3, -1.0),
-                            directional=True, castshadow=False,
-                            intensity=float(vision_cfg.get("light_intensity", 6.0)))
         res = vision_cfg["camera_res"]  # (W, H)
         fov = vision_cfg["camera_fov"]
         # non-batched renderer: each camera binds to one env (env_idx) and
@@ -573,8 +574,10 @@ class RasterizerObsRenderer(_CameraRenderer):
         for cam in self.cams:
             cam.move_to_attach()
             rgb = np.asarray(cam.render(rgb=True)[0])
-            frames.append(torch.as_tensor(rgb.reshape(rgb.shape[-3:]),
-                                          device=env.device))
+            # the rasterizer returns a vertically-flipped view (negative stride);
+            # torch can't wrap negative strides, so make it contiguous first.
+            rgb = np.ascontiguousarray(rgb.reshape(rgb.shape[-3:]))
+            frames.append(torch.as_tensor(rgb, device=env.device))
         return torch.stack(frames, dim=0)
 
     def topdown(self, env: "DeepRacerEnv") -> torch.Tensor:
@@ -594,8 +597,10 @@ class RasterizerObsRenderer(_CameraRenderer):
         frames = []
         for cam in self.top_cams:
             rgb = np.asarray(cam.render(rgb=True)[0])
-            frames.append(torch.as_tensor(rgb.reshape(rgb.shape[-3:]),
-                                          device=env.device))
+            # the rasterizer returns a vertically-flipped view (negative stride);
+            # torch can't wrap negative strides, so make it contiguous first.
+            rgb = np.ascontiguousarray(rgb.reshape(rgb.shape[-3:]))
+            frames.append(torch.as_tensor(rgb, device=env.device))
         return torch.stack(frames, dim=0)
 
 
