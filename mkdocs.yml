@@ -1,5 +1,5 @@
 site_name: DeepRacer-Genesis
-site_description: AWS DeepRacer RL on Genesis — GPU-batched physics, TorchRL, config-as-code experiments
+site_description: AWS DeepRacer RL on Genesis — GPU-batched physics, rsl-rl, config-as-code experiments
 repo_url: https://github.com/Luna-v0/deepracer-genesis
 repo_name: Luna-v0/deepracer-genesis
 
@@ -39,6 +39,7 @@ plugins:
   - mkdocstrings:
       handlers:
         python:
+          paths: [.]          # find the package source statically (no install / no torch needed)
           options:
             docstring_style: google
             show_source: true
@@ -66,7 +67,7 @@ nav:
           - stages: api/experiment/stages.md
           - authoring (Experiment): api/experiment/authoring.md
           - run: api/experiment/run.md
-          - trainer: api/experiment/trainer.md
+          - training backend (rsl-rl): api/experiment/trainer.md
           - evaluator: api/experiment/evaluator.md
           - ablation: api/experiment/ablation.md
           - report: api/experiment/report.md
