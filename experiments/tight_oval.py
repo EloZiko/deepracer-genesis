@@ -1,4 +1,4 @@
-"""Train a forward-driving policy on the tight home-room oval (``my_track``).
+"""Train a forward-driving policy on the tight home-room oval (``donut_track``).
 
 Feasibility probe for a 1.5 x 1.6 m room track: the centerline turn radius
 (~0.40 m) sits above the car's full-lock minimum (~0.284 m), and a privileged
@@ -24,7 +24,7 @@ FULL = ("v_forward", "v_lateral", "yaw_rate", "lateral", "heading",
 
 
 class TightOval(Experiment):
-    """Continuous-control PPO on ``my_track``, forward direction only.
+    """Continuous-control PPO on ``donut_track``, forward direction only.
 
     Blends: GPU feature-vector env on the single generated oval + the FULL
     feature vector + a shared-encoder MLP policy + holdout eval on the same
@@ -38,16 +38,16 @@ class TightOval(Experiment):
 
     def pipeline(self):
         return (
-            FeatureEnvironment(num_envs=1024, tracks=("my_track",),
+            FeatureEnvironment(num_envs=1024, tracks=("donut_track",),
                                feature_set=SelectFeatures,
                                feature_params={"features": FULL})
             >> VectorPolicy(keys=("state",))
-            >> Evaluation(real_tracks=("my_track",), charts=True)
+            >> Evaluation(real_tracks=("donut_track",), charts=True)
         )
 
 
 class TightOvalLive(Experiment):
-    """Watch cars learn to lap ``my_track`` live in the interactive viewer.
+    """Watch cars learn to lap ``donut_track`` live in the interactive viewer.
 
     Same env/policy as :class:`TightOval`, but ``view="gui"`` opens a Genesis
     window and ``realtime_factor=1`` paces it to real time so it is watchable.
@@ -71,7 +71,7 @@ class TightOvalLive(Experiment):
     def pipeline(self):
         return (
             FeatureEnvironment(num_envs=self.num_envs, backend="gpu",
-                               tracks=("my_track",), view="gui",
+                               tracks=("donut_track",), view="gui",
                                realtime_factor=1.0,
                                feature_set=SelectFeatures,
                                feature_params={"features": FULL})
