@@ -13,6 +13,9 @@ Run::
 
 from deepracer_genesis.envs.features import SelectFeatures
 from deepracer_genesis.experiment import (
+    AsymmetricCameraPolicy,
+    CameraEnvironment,
+    DomainRandomizationCamera,
     Evaluation,
     Experiment,
     FeatureEnvironment,
@@ -62,20 +65,20 @@ class TightOvalLive(Experiment):
     to watch).
     """
 
-    num_envs = 9
-    total_env_steps = 5_000_000
+    num_envs = 512
+    total_env_steps = 10_000_000
     eval_every_steps = 1_000_000
     ablation_group = "tight_oval"
     variant = "tight_oval_live"
 
     def pipeline(self):
         return (
-            FeatureEnvironment(num_envs=self.num_envs, backend="gpu",
-                               tracks=("donut_track",), view="gui",
-                               realtime_factor=1.0,
-                               feature_set=SelectFeatures,
-                               feature_params={"features": FULL})
-            >> VectorPolicy(keys=("state",))
+            CameraEnvironment(render="nyx", resolution=(160, 120), num_envs=64,
+                              tracks=("donut_track",))
+            >> DomainRandomizationCamera(brightness=(0.8, 1.2), hue=0.03)
+            >> AsymmetricCameraPolicy(actor_keys=("camera",),
+                                      critic_keys=("camera", "state"))
+                >> Evaluation(charts=True, real_tracks=("donut_track",), gui=True)                              # Part N charts
         )
 
 

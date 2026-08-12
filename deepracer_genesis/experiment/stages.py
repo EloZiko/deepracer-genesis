@@ -697,6 +697,9 @@ class Evaluation(Stage):
         eval_num_envs: parallel envs per eval rollout.
         eval_episodes: episodes per eval (None derives from the rollout window).
         charts: render eval charts (matplotlib optional extra).
+        gui: open the interactive viewer during the out-of-loop holdout eval so
+            you can watch the policy drive each real track (needs a display;
+            keep eval_num_envs small).
         KIND: Stage category tag (eval).
     """
 
@@ -704,6 +707,7 @@ class Evaluation(Stage):
     eval_num_envs: int = 64
     eval_episodes: Optional[int] = None
     charts: bool = True
+    gui: bool = False
 
     KIND = "eval"
 
@@ -712,7 +716,8 @@ class Evaluation(Stage):
             real_tracks=tuple(self.real_tracks),
             eval_num_envs=self.eval_num_envs,
             eval_episodes=self.eval_episodes,
-            charts=self.charts))
+            charts=self.charts,
+            gui=self.gui))
 
 
 # ----------------------------------------------------------------------

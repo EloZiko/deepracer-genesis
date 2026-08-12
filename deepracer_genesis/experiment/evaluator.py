@@ -226,7 +226,7 @@ def aggregate_episodes(
 # ---------------------------------------------------------------------------
 # Out-of-loop per-track holdout evaluation (Part N.3)
 
-def build_single_track_sim(spec, track: str, num_envs: int):
+def build_single_track_sim(spec, track: str, num_envs: int, view: str = "none"):
     """Build a fresh single-track sim for ``track`` from ``spec``.
 
     A fresh sim per track sidesteps the one-scene-per-process / camera
@@ -237,6 +237,10 @@ def build_single_track_sim(spec, track: str, num_envs: int):
         spec: The experiment spec (its sim_cfg is reused, track overridden).
         track: The single track name to evaluate on.
         num_envs: Parallel envs for the eval rollout.
+        view: view renderer for this eval sim (``"none"`` default). ``"gui"``
+            opens the interactive viewer so you can watch the rollout; it is
+            auto-paced to real time when the spec did not already set a positive
+            ``realtime_factor`` (else the short rollout flies by too fast to see).
 
     Returns:
         A built DeepRacerEnv on the spec's backend for exactly ``track``.
@@ -247,7 +251,9 @@ def build_single_track_sim(spec, track: str, num_envs: int):
 
     cfg = Builder(spec).sim_cfg()
     cfg["sim"]["track"] = track
-    cfg["sim"]["view"] = "none"    # eval rollout needs no viewer (avoid a 2nd window)
+    cfg["sim"]["view"] = view
+    if view == "gui" and cfg["sim"].get("realtime_factor", 0) <= 0:
+        cfg["sim"]["realtime_factor"] = 1.0    # pace the watch to real time
     ensure_init(cfg["sim"].get("backend", "gpu"))
     return DeepRacerEnv(num_envs=num_envs, env_cfg=cfg)
 

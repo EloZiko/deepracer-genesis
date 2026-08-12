@@ -212,10 +212,11 @@ def run_rsl(spec: "ExperimentSpec", root: str = "runs", on_eval=None) -> EvalRec
         try:
             from .evaluator import build_single_track_sim, evaluate_on_tracks
             with torch.inference_mode():
+                view = "gui" if spec.eval.gui else "none"
                 holdout = evaluate_on_tracks(
                     _RslActor(policy), spec.eval.real_tracks,
                     sim_factory=lambda t: build_single_track_sim(
-                        spec, t, spec.eval.eval_num_envs))
+                        spec, t, spec.eval.eval_num_envs, view=view))
         except Exception as e:   # noqa: BLE001
             print(f"[rsl] holdout eval skipped ({type(e).__name__}: {e})")
 

@@ -46,12 +46,11 @@ deepracer_genesis = ["assets/**/*"]
 [dependency-groups]
 dev = [
     "pytest>=8",
-    # gs-madrona bundles nvJitLink 12.4 but prefers the system libnvrtc.so.13 at
-    # runtime; on a CUDA-13 toolkit that mismatch breaks the batch renderer's
-    # megakernel link. Pinning NVRTC 12.4 here keeps `uv sync` from pruning it
-    # (it silently did, breaking camera rendering). Pairs with
-    # scripts/fix_madrona_cuda13.sh (symlinks + dlopen-name patch).
-    "nvidia-cuda-nvrtc-cu12==12.4.127",
+    # NOTE: the old NVRTC 12.4 pin (+ scripts/fix_madrona_cuda13.sh) was a
+    # workaround for gs-madrona 0.0.8 on a CUDA-13 toolkit. gs-madrona >=0.0.10
+    # (pulled by the [vision] extra) requires nvidia-cuda-nvrtc-cu12>=12.8 and
+    # links its megakernel natively, so the pin is removed — keeping it makes the
+    # [vision] extra unsatisfiable (12.4.127 vs >=12.8).
     "catppuccin-jupyterlab>=0.2.5",
     "ipykernel>=7.3.0",
     "ipywidgets>=8.1.8",
@@ -66,3 +65,11 @@ dev = [
     "pycrdt>=0.13.1",
     "python-lsp-server[all]>=1.14.0",
 ]
+# GPU renderers, synced by default for local `uv run` (camera/Nyx experiments)
+# so `uv run experiments/foo.py` "just works". These mirror the [vision]/[nyx]
+# EXTRAS (which are what a `uv add "deepracer-genesis[vision] @ git+…"` install
+# uses); the group is dev-only and never ships in the wheel or the git install.
+renderers = ["gs-madrona>=0.0.10", "gs-nyx>=0.1.4", "gs-nyx-plugin>=0.1.5"]
+
+[tool.uv]
+default-groups = ["dev", "renderers"]

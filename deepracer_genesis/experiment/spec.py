@@ -214,12 +214,17 @@ class EvalConfig:
         eval_num_envs: parallel envs for each eval rollout.
         eval_episodes: episodes per eval (None = derive from the rollout window).
         charts: whether to render eval charts (matplotlib, optional extra).
+        gui: open the interactive viewer during the out-of-loop holdout eval so
+            you can watch the policy drive each real track (needs a display; use
+            a small ``eval_num_envs``). Orthogonal to the obs renderer — the
+            window shows the cars while the policy still runs on its own obs.
     """
 
     real_tracks: tuple[str, ...] = ()
     eval_num_envs: int = 64
     eval_episodes: Optional[int] = None
     charts: bool = True
+    gui: bool = False
 
 
 @dataclass(frozen=True)
