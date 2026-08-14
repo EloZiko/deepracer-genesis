@@ -92,7 +92,8 @@ def rollout_video(target, *, root: str = "runs", ckpt: Optional[str] = None,
     eval_spec.validate()
 
     b = Builder(eval_spec)
-    sim = b.sim(extra_cfg={"spectator": True, "spectator_res": tuple(spectator_res)})
+    sim = b.sim(extra_cfg={"vision": {"spectator": True,
+                                      "spectator_res": tuple(spectator_res)}})
     actor = _rsl_actor(eval_spec, ckpt, sim)
 
     out_dir = out or os.path.join(run_dir, "videos")
@@ -168,7 +169,7 @@ def dr_preview_video(target="cam_baseline", *, steps: int = 300,
     spec = override(spec, "env.num_envs", num_envs)
 
     b = Builder(spec)
-    sim = b.sim(extra_cfg=dict(_SPECTATOR))
+    sim = b.sim(extra_cfg={"vision": dict(_SPECTATOR)})
     aug = dict(spec.obs_dr.image_aug)
 
     os.makedirs(out, exist_ok=True)

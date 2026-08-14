@@ -99,6 +99,10 @@ def spec_to_train_cfg(spec: "ExperimentSpec") -> dict:
         cfg["actor"]["cnn_cfg"] = cnn_cfg
         if "cnn_cfg" in cfg["critic"]:
             cfg["critic"]["cnn_cfg"] = dict(cnn_cfg)
+    if spec.policy.distribution:
+        # std_range/learn_std/init_std etc.; std_range arrives as a list from
+        # spec round-trips — rsl-rl accepts any sequence.
+        cfg["actor"]["distribution_cfg"].update(spec.policy.distribution)
     ppo = spec.algorithm.ppo
     for ours, theirs in _PPO_KEY_MAP.items():
         if ours in ppo:

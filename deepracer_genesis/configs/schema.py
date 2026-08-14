@@ -79,6 +79,7 @@ class VisionConfig(TypedDict):
     camera_fov: float
     camera_pitch_deg: float
     policy_res: Optional[tuple]
+    frame_stack: int
     topdown_camera: bool
     spectator: bool
     spectator_res: tuple

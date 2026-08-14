@@ -60,6 +60,12 @@ class EnvSpec:
     realtime_factor: float = 1.0   # viewer pacing (view="gui"); <=0 = uncapped
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
+    # camera frames stacked along channels (1 = single frame). Gives the
+    # actor temporal context (ego-velocity is unobservable from one frame);
+    # stack order oldest-first, fresh episodes prime by repeating the first
+    # frame — both mirrored exactly by the car node (deployment contract).
+    # Default 4 per the maintainer's ruling (matches AWS/dr-gym precedent).
+    frame_stack: int = 4
     lookahead_k: int = 10
     # the FeatureSet subclass the env assembles (envs/features.py): None keeps
     # the default ClassicFeatures (waypoint lookahead); PerceptionFeatures gives
@@ -156,6 +162,12 @@ class PolicySpec:
     # A tuple of (steer, speed) pairs => DISCRETE Categorical policy over that
     # action list — the original AWS DeepRacer action-space style.
     actions: Optional[tuple] = None
+    # Overrides merged into the rsl-rl distribution_cfg (e.g. init_std,
+    # std_range, learn_std). Needed because the unbounded learned std is
+    # bistable on the camera task: entropy_coef=0.01 explodes it (18+),
+    # <=0.001 collapses it (0.02) — a std_range ceiling gives entropy a
+    # stable operating point. None => backend defaults.
+    distribution: Optional[dict] = None
 
 
 @dataclass(frozen=True)

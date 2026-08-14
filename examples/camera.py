@@ -11,6 +11,7 @@ Run one::
 """
 
 from deepracer_genesis.experiment import (
+    PPO,
     AsymmetricCameraPolicy,
     CameraEnvironment,
     DomainRandomizationActions,
@@ -36,7 +37,12 @@ class CameraMadronaDr(Experiment):
 
     def pipeline(self):
         return (
-            CameraEnvironment(render="madrona", resolution=(160, 120), num_envs=128)
+            # 64 envs + 8 minibatches: the default 4-frame stack quadruples
+            # rollout-storage obs (24 x N x 12 x 120 x 160 f32) and each PPO
+            # minibatch indexes a dense copy — 128 envs / 4 minibatches OOMs
+            # an 8 GB GPU next to Genesis. Also set
+            # PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True (see __main__).
+            CameraEnvironment(render="madrona", resolution=(160, 120), num_envs=64)
             >> DomainRandomizationTrackAppearance(strength=0.6)     # world-color remap
             >> DomainRandomizationCamera(brightness=(0.7, 1.3), hue=0.05, blur=0.3,
                                          camera_jitter=True)         # image + mount DR
@@ -45,6 +51,7 @@ class CameraMadronaDr(Experiment):
                                       critic_keys=("camera", "state"))
             >> DomainRandomizationActions(steer_noise=0.02, speed_noise=0.05,
                                           delay_steps=1)             # actuation DR
+            >> PPO(minibatches=8)
         )
 
 
@@ -71,4 +78,8 @@ class CameraNyx(Experiment):
 
 
 if __name__ == "__main__":
+    import os
+    # Must be set before CUDA init: the stacked-obs copies fragment the
+    # allocator on 8 GB GPUs without expandable segments.
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
     CameraMadronaDr().run()

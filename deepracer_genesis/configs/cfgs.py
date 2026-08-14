@@ -67,6 +67,9 @@ def get_env_cfg(vision=False, track="reinvent_base", randomize=False,
             "camera_fov": 90,
             "camera_pitch_deg": 10.0,
             "policy_res": None,         # downscale target for the policy (None = camera_res)
+            "frame_stack": 4,           # frames stacked along channels (1 = single frame);
+                                        # 4 is the contract default: ego-velocity is
+                                        # unobservable from one frame (AWS/dr-gym precedent)
             "topdown_camera": topdown,  # per-env batch camera (validation checks)
             "spectator": False,         # high-res rasterizer cam, all cars in one view
             "spectator_res": (1280, 960),

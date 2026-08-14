@@ -202,6 +202,7 @@ class CameraEnvironment(Stage):
     render: str = "madrona"
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
+    frame_stack: int = 4               # frames stacked along channels (contract default)
     lookahead_k: int = 10
     feature_set: "type[FeatureSet] | None" = None
     feature_params: Optional[dict] = None
@@ -219,6 +220,7 @@ class CameraEnvironment(Stage):
         return replace(spec, env=EnvSpec(
             modality="camera", render=self.render,
             resolution=tuple(self.resolution), fov=self.fov,
+            frame_stack=self.frame_stack,
             lookahead_k=self.lookahead_k,
             feature_set=self.feature_set,
             feature_params=dict(self.feature_params or {}),
@@ -506,6 +508,7 @@ class AsymmetricCameraPolicy(Stage):
     cnn: Optional[dict] = None
     mlp: Optional[dict] = None
     actions: Optional[tuple] = None       # (steer, speed) pairs => discrete
+    distribution: Optional[dict] = None   # rsl-rl distribution_cfg overrides
 
     KIND = "policy"
 
@@ -514,6 +517,7 @@ class AsymmetricCameraPolicy(Stage):
             actor_keys=tuple(self.actor_keys), critic_keys=tuple(self.critic_keys),
             cnn=dict(self.cnn or DEFAULT_CNN), mlp=dict(self.mlp or DEFAULT_MLP),
             actions=tuple(map(tuple, self.actions)) if self.actions else None,
+            distribution=dict(self.distribution) if self.distribution else None,
         ))
 
 

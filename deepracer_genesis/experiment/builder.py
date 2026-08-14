@@ -52,6 +52,7 @@ class Builder:
                           randomize=randomize, backend=env.backend, view=env.view)
         cfg["vision"]["camera_res"] = tuple(env.resolution)
         cfg["vision"]["camera_fov"] = env.fov
+        cfg["vision"]["frame_stack"] = env.frame_stack
         cfg["obs"]["lookahead_k"] = env.lookahead_k
         cfg["obs"]["feature_set"] = env.feature_set
         cfg["obs"]["feature_params"] = dict(env.feature_params)
@@ -103,6 +104,13 @@ class Builder:
             _ensure_genesis(self.spec.env.backend)
             cfg = self.sim_cfg()
             if extra_cfg:
-                cfg.update(extra_cfg)
+                # Deep-merge one level: {"vision": {"spectator": True}} must
+                # update INSIDE the section, not replace the whole section
+                # (a flat update() silently dropped nested overrides).
+                for k, v in extra_cfg.items():
+                    if isinstance(v, dict) and isinstance(cfg.get(k), dict):
+                        cfg[k] = {**cfg[k], **v}
+                    else:
+                        cfg[k] = v
             self._sim = DeepRacerEnv(num_envs=self.spec.env.num_envs, env_cfg=cfg)
         return self._sim

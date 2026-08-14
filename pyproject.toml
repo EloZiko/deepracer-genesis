@@ -31,6 +31,10 @@ vision = ["gs-madrona>=0.0.10"]
 nyx = ["gs-nyx>=0.1.4", "gs-nyx-plugin>=0.1.5"]
 tracking = ["mlflow"]
 hpo = ["optuna"]
+# ONNX export/verification (workstation-only; the car runtime needs neither).
+# Run exports in a genesis-free process: genesis and onnxruntime bundle
+# clashing LLVM symbols (see deploy/onnx.py).
+export = ["onnx", "onnxruntime"]
 docs = ["mkdocs-material", "mkdocstrings[python]"]
 
 [build-system]
