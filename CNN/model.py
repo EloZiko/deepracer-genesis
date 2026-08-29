@@ -9,11 +9,12 @@ class PerceptionCNN(nn.Module):
             nn.Conv2d(in_channels, 32, kernel_size=5, stride=2), nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, stride=2), nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=2), nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=2), nn.ReLU(),
         )
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(64 * 13 * 18, 256), nn.ReLU(),
-            nn.Linear(256, n_targets),
+            nn.Linear(64 * 6 * 8, 128), nn.ReLU(),
+            nn.Linear(128, n_targets),
         )
 
     def forward(self, x):
