@@ -29,23 +29,27 @@ class PiloteCNN(Experiment):
     ablation_group = "cnn"
     variant = "perception"
 
-    noise = 1.0        # 1 = l'erreur mesuree du CNN, 0 = perception parfaite
+    noise = 1.0            # 1 = l'erreur mesuree du CNN, 0 = perception parfaite
+    noise_channels = None  # None = tous ; sinon ("lateral", "heading"), etc.
     num_envs = 2048
     backend = "gpu"    # "gpu" = Metal sur Mac, "cpu" sinon
     max_speed = 2.0    # plafond d'action ; None = 4.0 m/s par defaut
+    tracks = PISTES
+    test_tracks = TEST
 
     def pipeline(self):
         return (
             FeatureEnvironment(
                 feature_set=CNNFeatures,
-                feature_params={"noise": self.noise},
-                tracks=PISTES,
+                feature_params={"noise": self.noise,
+                                "noise_channels": self.noise_channels},
+                tracks=self.tracks,
                 num_envs=self.num_envs,
                 backend=self.backend,
                 max_speed=self.max_speed,
             )
             >> VectorPolicy(keys=("state",))
-            >> Evaluation(real_tracks=TEST, eval_num_envs=16)
+            >> Evaluation(real_tracks=self.test_tracks, eval_num_envs=16)
         )
 
 

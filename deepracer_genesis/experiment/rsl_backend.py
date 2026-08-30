@@ -82,7 +82,10 @@ def spec_to_train_cfg(spec: "ExperimentSpec") -> dict:
     """
     from ..configs.cfgs import get_train_cfg
 
-    vision = spec.env.modality == "camera"
+    # the model class follows the POLICY, not the env: a camera env whose policy
+    # reads only vectors (frozen-encoder transfer) needs the MLP model.
+    keys = set(spec.policy.actor_keys) | set(spec.policy.critic_keys)
+    vision = spec.env.modality == "camera" and "camera" in keys
     cfg = get_train_cfg(vision=vision)
     cfg["obs_groups"] = {"actor": list(spec.policy.actor_keys),
                          "critic": list(spec.policy.critic_keys)}
