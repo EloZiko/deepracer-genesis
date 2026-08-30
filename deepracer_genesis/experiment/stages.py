@@ -164,6 +164,8 @@ class FeatureEnvironment(Stage):
     view: str = "none"                 # "none" | "gui" | "spectator" | "topdown"
     realtime_factor: float = 1.0       # viewer pacing (view="gui"); <=0 = uncapped
 
+    max_speed: Optional[float] = None   # plafond d'action en m/s
+
     KIND = "environment"
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
@@ -176,6 +178,7 @@ class FeatureEnvironment(Stage):
             tracks=tuple(self.tracks), num_envs=self.num_envs,
             random_start=self.random_start,
             random_direction=self.random_direction,
+            max_speed=self.max_speed,
             backend=self.backend, view=self.view,
             realtime_factor=self.realtime_factor,
         ))
@@ -214,6 +217,8 @@ class CameraEnvironment(Stage):
     view: str = "none"                 # "none" | "gui" | "spectator" | "topdown"
     realtime_factor: float = 1.0       # viewer pacing (view="gui"); <=0 = uncapped
 
+    max_speed: Optional[float] = None   # plafond d'action en m/s
+
     KIND = "environment"
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
@@ -227,6 +232,7 @@ class CameraEnvironment(Stage):
             tracks=tuple(self.tracks),
             num_envs=self.num_envs, random_start=self.random_start,
             random_direction=self.random_direction,
+            max_speed=self.max_speed,
             backend=self.backend, view=self.view,
             realtime_factor=self.realtime_factor,
         ))

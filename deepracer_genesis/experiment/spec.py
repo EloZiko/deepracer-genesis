@@ -41,6 +41,7 @@ class EnvSpec:
         feature_params: tuning knobs (horizons, history lengths) for the feature set.
         tracks: track names the env trains across.
         num_envs: parallel environment count.
+        max_speed: action-cap speed in m/s, or None for the physics default.
         random_start: randomize spawn waypoint and lateral/yaw offset per episode.
         random_direction: flip driving direction (CW/CCW) per episode.
         reward: reward callable, or None for the built-in default.
@@ -60,6 +61,7 @@ class EnvSpec:
     realtime_factor: float = 1.0   # viewer pacing (view="gui"); <=0 = uncapped
     resolution: tuple[int, int] = (160, 120)
     fov: float = 90.0
+    max_speed: float | None = None
     # camera frames stacked along channels (1 = single frame). Gives the
     # actor temporal context (ego-velocity is unobservable from one frame);
     # stack order oldest-first, fresh episodes prime by repeating the first
