@@ -5,11 +5,14 @@ from torch.utils.data import DataLoader
 from dataset import PISTES, RACINE, RolloutDataset
 from model import PerceptionCNN
 
-VAL = ("reInvent2019_track_v2", "2022_reinvent_champ_v2",
-       "Vegas_track_v2", "Mexico_track_v2")
+# 10 pistes choisies pour que leur distribution colle a celle de l'ensemble
+VAL = ("2022_july_pro_v2", "2022_march_open_v2", "2022_may_pro_v2",
+       "2022_reinvent_champ_v2", "2022_summit_speedway_v2",
+       "AmericasGeneratedInclStart_v2", "Belille_v2", "dubai_open_v2",
+       "morgan_open_v2", "penbay_pro_v2")
 TRAIN = tuple(p for p in PISTES if p not in VAL)
 
-EPOCHS = 12
+EPOCHS = 20
 BATCH = 64
 LR = 1e-4
 
@@ -36,6 +39,7 @@ def main():
 
     net = PerceptionCNN().to(device)
     opt = torch.optim.Adam(net.parameters(), lr=LR, weight_decay=1e-4)
+    sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
     loss_fn = nn.MSELoss()
 
     print(f"train {len(train_ds):,} | val {len(val_ds):,} | {device}")
@@ -55,7 +59,9 @@ def main():
 
         train_loss = total / len(train_ds)
         val_loss = evaluer(net, val_dl, loss_fn, device)
-        print(f"\r  epoque {epoch:3}  train {train_loss:.5f}  val {val_loss:.5f}")
+        print(f"\r  epoque {epoch:3}  train {train_loss:.5f}  val {val_loss:.5f}"
+              f"  lr {sched.get_last_lr()[0]:.2e}")
+        sched.step()
 
         if val_loss < meilleure:
             meilleure = val_loss

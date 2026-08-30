@@ -18,7 +18,19 @@ PISTES = tuple(f"{p}_v2" for p in (
     "reinvent_base", "Oval_track", "Bowtie_track", "Monaco", "Spain_track",
     "New_York_Track", "Austin", "Singapore", "Vegas_track", "China_track",
     "Mexico_track", "Tokyo_Training_track", "Canada_Training", "AWS_track",
-    "reInvent2019_track", "2022_reinvent_champ",
+    "reInvent2019_track", "2022_reinvent_champ", "2022_april_open",
+    "2022_april_pro", "2022_august_open", "2022_august_pro",
+    "2022_july_open", "2022_july_pro", "2022_june_open", "2022_june_pro",
+    "2022_march_open", "2022_march_pro", "2022_may_open", "2022_may_pro",
+    "2022_october_open", "2022_october_pro", "2022_september_open",
+    "2022_september_pro", "2022_summit_speedway",
+    "2022_summit_speedway_mini", "Albert", "AmericasGeneratedInclStart",
+    "Aragon", "Belille", "FS_June2020", "H_track", "July_2020", "LGSWide",
+    "arctic_open", "arctic_pro", "caecer_gp", "caecer_loop", "dubai_open",
+    "dubai_pro", "hamption_open", "hamption_pro", "jyllandsringen_open",
+    "jyllandsringen_pro", "morgan_open", "morgan_pro", "penbay_open",
+    "penbay_pro", "red_star_open", "red_star_pro", "thunder_hill_open",
+    "thunder_hill_pro",
 ))
 
 

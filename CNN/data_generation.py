@@ -6,10 +6,7 @@ from deepracer_genesis.experiment import CameraEnvironment
 from deepracer_genesis.envs.features import PerceptionFeatures
 from deepracer_genesis.datasets.rollout import collect_rollout_dataset
 
-
 warnings.filterwarnings("ignore")
-
-
 
 RACINE = Path(__file__).resolve().parent.parent
 piste = sys.argv[1]
