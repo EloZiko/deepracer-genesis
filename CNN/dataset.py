@@ -1,3 +1,12 @@
+"""Jeu de donnees des rollouts, servi depuis un cache a acces direct.
+
+Les parquets gardent les images en memoire une fois lus, et macOS duplique le
+dataset dans chaque worker : la RAM grimpe avec la taille du jeu de donnees.
+On les recopie donc une fois dans un fichier plat, lu ensuite en memmap — le
+cache disque du systeme fait le travail et les workers partagent les memes
+pages au lieu d'en avoir chacun une copie.
+"""
+
 import io
 import json
 from pathlib import Path
@@ -9,10 +18,9 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 K = 4
-SEUIL_VOITURE = 2.0          # m : en deca, une autre voiture bouche la vue
-DEMI_FOV = np.radians(45)    # la camera a un champ de 90 deg
 COURBURE_MAX = 1.0           # au-dela, le trace de la piste est aberrant
 RACINE = Path(__file__).resolve().parent.parent   # la racine du repo
+CACHE = RACINE / "data" / "cache"
 
 PISTES = tuple(f"{p}_v2" for p in (
     "reinvent_base", "Oval_track", "Bowtie_track", "Monaco", "Spain_track",
@@ -34,30 +42,6 @@ PISTES = tuple(f"{p}_v2" for p in (
 ))
 
 
-def images_propres(df, seuil=SEUIL_VOITURE):
-    """True pour les lignes ou aucune autre voiture n'est dans le champ.
-
-    Les environnements partagent le monde sur le chemin CPU : chaque camera
-    voit les voitures des autres. On repere celles qui genent a partir des
-    positions enregistrees dans `pose`.
-    """
-    pose = np.array(df["pose"].tolist(), dtype=np.float32)   # x, y, yaw, progress
-    t = df["t"].to_numpy()
-    propre = np.ones(len(df), dtype=bool)
-
-    for instant in np.unique(t):
-        idx = np.flatnonzero(t == instant)
-        xy, yaw = pose[idx, :2], pose[idx, 2]
-        d = xy[None, :, :] - xy[:, None, :]                  # (m, m, 2)
-        dist = np.linalg.norm(d, axis=2)
-        angle = np.arctan2(d[:, :, 1], d[:, :, 0]) - yaw[:, None]
-        angle = (angle + np.pi) % (2 * np.pi) - np.pi
-        gene = (dist > 1e-3) & (dist < seuil) & (np.abs(angle) < DEMI_FOV)
-        propre[idx] = ~gene.any(axis=1)
-
-    return propre
-
-
 def courbures_valides(cibles, seuil=COURBURE_MAX):
     """True pour les lignes dont les deux courbures sont plausibles.
 
@@ -67,41 +51,94 @@ def courbures_valides(cibles, seuil=COURBURE_MAX):
     return np.abs(cibles[:, -2:]).max(axis=1) <= seuil
 
 
-class RolloutDataset(Dataset):
-    def __init__(self, pistes=PISTES, k=K):
-        self.k = k
-        self.tables = []          # un DataFrame par fichier
-        self.index = []           # (numero de table, ligne de depart)
+def _sources(piste):
+    return sorted((RACINE / "data" / piste).glob("rollout_*.parquet"))
 
-        for piste in pistes:
+
+def _empreinte(pistes):
+    """Identifie les parquets sources : nom, taille et date de modification."""
+    return sorted([f.name, f.stat().st_size, int(f.stat().st_mtime)]
+                  for p in pistes for f in _sources(p))
+
+
+def construire_cache(pistes=PISTES):
+    """Recopie les images bout a bout dans un fichier plat + un index.
+
+    N'ecrit rien si le cache correspond deja aux parquets presents.
+    """
+    CACHE.mkdir(parents=True, exist_ok=True)
+    stamp = CACHE / "sources.json"
+    empreinte = _empreinte(pistes)
+    if stamp.exists() and json.loads(stamp.read_text()) == empreinte:
+        return
+
+    offsets, tailles, cibles, env, episode, piste_id = [], [], [], [], [], []
+    position = 0
+    with open(CACHE / "images.bin", "wb") as blob:
+        for pid, piste in enumerate(pistes):
             dossier = RACINE / "data" / piste
-            meta = json.loads((dossier / "meta.json").read_text())
-            self.lo, self.hi = meta["cnn_target_slice"]
-
-            for fichier in sorted(dossier.glob("rollout_*.parquet")):
+            lo, hi = json.loads((dossier / "meta.json").read_text())["cnn_target_slice"]
+            for fichier in _sources(piste):
                 df = pd.read_parquet(fichier)
-                env, ep = df["env"].to_numpy(), df["episode"].to_numpy()
-                cibles = np.stack(df["state"].to_numpy())[:, self.lo:self.hi]
-                propre = images_propres(df)
-                courbure = courbures_valides(cibles)
-                numero = len(self.tables)
-                self.index += [(numero, i) for i in range(len(df) - k + 1)
-                               if env[i] == env[i + k - 1] and ep[i] == ep[i + k - 1]
-                               and propre[i:i + k].all() and courbure[i + k - 1]]
-                self.tables.append(df)
+                for img in df["image"]:
+                    blob.write(img)
+                    offsets.append(position)
+                    tailles.append(len(img))
+                    position += len(img)
+                cibles.append(np.stack(df["state"].to_numpy())[:, lo:hi])
+                env.append(df["env"].to_numpy())
+                episode.append(df["episode"].to_numpy())
+                piste_id.append(np.full(len(df), pid))
+            print(f"  cache {piste}", flush=True)
+
+    np.savez(CACHE / "index.npz",
+             offsets=np.array(offsets, np.int64),
+             tailles=np.array(tailles, np.int32),
+             cibles=np.concatenate(cibles).astype(np.float32),
+             env=np.concatenate(env).astype(np.int32),
+             episode=np.concatenate(episode).astype(np.int32),
+             piste_id=np.concatenate(piste_id).astype(np.int16),
+             pistes=np.array(pistes))
+    stamp.write_text(json.dumps(empreinte))
+
+
+class RolloutDataset(Dataset):
+    """Empilements de k images consecutives d'une meme voiture, et leur cible."""
+
+    def __init__(self, pistes=PISTES, k=K):
+        construire_cache()
+        d = np.load(CACHE / "index.npz")
+        toutes = list(d["pistes"])
+        garde = np.isin(d["piste_id"], [toutes.index(p) for p in pistes])
+
+        self.k = k
+        self.offsets, self.tailles = d["offsets"], d["tailles"]
+        self.cibles = d["cibles"]
+        self._blob = None                  # ouvert par worker, jamais serialise
+
+        env, ep, pid = d["env"], d["episode"], d["piste_id"]
+        courbure = courbures_valides(self.cibles)
+        # un empilement est valide s'il reste dans la meme voiture, le meme
+        # episode et le meme fichier, et si sa cible n'est pas aberrante
+        i = np.flatnonzero(garde)[: -(k - 1) or None]
+        j = i + k - 1
+        ok = ((env[i] == env[j]) & (ep[i] == ep[j]) & (pid[i] == pid[j])
+              & garde[j] & courbure[j])
+        self.index = i[ok]
 
     def __len__(self):
         return len(self.index)
 
     def __getitem__(self, n):
-        numero, i = self.index[n]
-        df = self.tables[numero]
-        x = torch.cat([self._frame(df, i + j) for j in range(self.k)], dim=0)
-        state = df["state"].iloc[i + self.k - 1]
-        y = torch.tensor(state[self.lo:self.hi], dtype=torch.float32)
+        i = self.index[n]
+        x = torch.cat([self._frame(i + j) for j in range(self.k)], dim=0)
+        y = torch.from_numpy(self.cibles[i + self.k - 1].copy())
         return x, y
 
-    def _frame(self, df, row):
-        img = Image.open(io.BytesIO(df["image"].iloc[row]))
+    def _frame(self, ligne):
+        if self._blob is None:
+            self._blob = np.memmap(CACHE / "images.bin", dtype=np.uint8, mode="r")
+        o, t = self.offsets[ligne], self.tailles[ligne]
+        img = Image.open(io.BytesIO(self._blob[o:o + t].tobytes()))
         a = np.asarray(img, dtype=np.float32) / 255.0   # (H, W, 3)
         return torch.from_numpy(a).permute(2, 0, 1)     # (3, H, W)

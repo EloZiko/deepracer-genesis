@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 from dataset import PISTES, RACINE, RolloutDataset
 from model import PerceptionCNN
@@ -12,9 +12,10 @@ VAL = ("2022_july_pro_v2", "2022_march_open_v2", "2022_may_pro_v2",
        "morgan_open_v2", "penbay_pro_v2")
 TRAIN = tuple(p for p in PISTES if p not in VAL)
 
-EPOCHS = 20
+EPOCHS = 8          # 8x plus de donnees qu-avant : moins d-epoques suffisent
 BATCH = 64
 LR = 1e-4
+VAL_MAX = 60_000    # echantillon de validation : au-dela on mesure du bruit
 
 
 def evaluer(net, dl, loss_fn, device):
@@ -34,8 +35,11 @@ def main():
 
     train_ds = RolloutDataset(pistes=TRAIN)
     val_ds = RolloutDataset(pistes=VAL)
-    train_dl = DataLoader(train_ds, batch_size=BATCH, shuffle=True, num_workers=4, persistent_workers=True)
-    val_dl = DataLoader(val_ds, batch_size=BATCH, num_workers=2, persistent_workers=True)
+    if len(val_ds) > VAL_MAX:      # tirage fixe, donc comparable d'un run a l'autre
+        g = torch.Generator().manual_seed(0)
+        val_ds = Subset(val_ds, torch.randperm(len(val_ds), generator=g)[:VAL_MAX].tolist())
+    train_dl = DataLoader(train_ds, batch_size=BATCH, shuffle=True, num_workers=8, persistent_workers=True)
+    val_dl = DataLoader(val_ds, batch_size=BATCH, num_workers=4, persistent_workers=True)
 
     net = PerceptionCNN().to(device)
     opt = torch.optim.Adam(net.parameters(), lr=LR, weight_decay=1e-4)
@@ -58,6 +62,7 @@ def main():
                 print(f"\r  epoque {epoch:3}  {fait:5.1f}%", end="", flush=True)
 
         train_loss = total / len(train_ds)
+        print(f"\r  epoque {epoch:3}  validation...", end="", flush=True)
         val_loss = evaluer(net, val_dl, loss_fn, device)
         print(f"\r  epoque {epoch:3}  train {train_loss:.5f}  val {val_loss:.5f}"
               f"  lr {sched.get_last_lr()[0]:.2e}")

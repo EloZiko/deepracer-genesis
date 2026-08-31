@@ -15,11 +15,12 @@ piste = sys.argv[1]
 monde = (CameraEnvironment(
     backend="cpu",
     resolution=(160, 120),
-    num_envs=8,
+    num_envs=32,        # 32 apparences et 32 departs par piste ;
+                        # la camera batchee les rend en un seul appel
     tracks=(piste,),
     feature_set=PerceptionFeatures,
     random_start=True,
 ) >> DomainRandomizationTrackAppearance(strength=0.6))
 
-collect_rollout_dataset(monde, out=str(RACINE / "data" / f"{piste}_v2"), steps=1024, seed=0)
+collect_rollout_dataset(monde, out=str(RACINE / "data" / f"{piste}_v2"), steps=1500, seed=0)   # 1500 = un episode complet (30 s)
 
