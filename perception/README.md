@@ -57,7 +57,7 @@ caffeinate -i .venv/bin/python -m perception.train_policy_with_cnn
 | `data_generation.py` | collects one track's rollouts |
 | `train_cnn.py` | trains the CNN |
 | `cnn_features.py` | `CNNPerceptionFeatures` — the frozen CNN in the env loop |
-| `noisy_features.py` | the CNN's measured error injected, without the renderer |
+| `noisy_features.py` | exact values plus noise the size of the CNN's error, no renderer |
 | `train_policy_with_cnn.py` | the policy fine-tuned through the real CNN |
 | `train_policy_with_noise.py` | the policy trained on simulated CNN error |
 

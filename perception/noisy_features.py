@@ -1,8 +1,14 @@
-"""PerceptionFeatures with the CNN's measured error injected on the camera channels.
+"""PerceptionFeatures with noise the size of the CNN's error on the camera channels.
 
-Models deployment without paying for the renderer: the first 7 channels come
-from the CNN, so they are noisy; the next 22 (past actions, command deltas) are
-computed onboard and stay exact.
+No CNN runs here and no image is rendered. The 7 camera channels keep their
+exact simulator values and get Gaussian noise added, scaled per channel to the
+root of the CNN's validation MSE; the other 22 (past actions, command deltas)
+are computed onboard and stay exact.
+
+That makes a policy trainable at feature-env speed, but the noise is
+independent from step to step and across channels, where the real CNN's error
+is correlated in time and worse in tight corners. Use it to rank which channels
+matter -- take the absolute numbers from a run through the real CNN.
 """
 
 import torch
