@@ -188,16 +188,8 @@ def run_rsl(spec: "ExperimentSpec", root: str = "runs", on_eval=None) -> EvalRec
 
     runner = OnPolicyRunner(sim, train_cfg, run_dir, device=device)
     if spec.resume:
-        # fine-tune: start from an existing policy instead of random weights.
-        # Shapes must match (same obs/action layout), which is the case whenever
-        # only the SOURCE of the observations changes (sim vs frozen CNN).
-        # Weights only. rsl-rl's load() otherwise restores the optimizer and,
-        # with it, `self.learning_rate = optimizer.param_groups[0]["lr"]` --
-        # silently overwriting the lr this spec asked for with whatever the
-        # adaptive schedule had drifted to by the end of the source run (6.6e-3
-        # for a 2048-env run: 200x too large to fine-tune with). Adam's moments
-        # describe the source observation distribution anyway, which is exactly
-        # what changes here.
+        # weights only: load() otherwise restores the optimizer and with it
+        # its lr, silently overwriting the one this spec asked for.
         runner.load(spec.resume, load_cfg={"actor": True, "critic": True,
                                            "optimizer": False, "iteration": False,
                                            "rnd": False})

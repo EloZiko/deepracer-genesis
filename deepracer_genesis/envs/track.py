@@ -73,12 +73,8 @@ class Track:
         # AWS routes commonly repeat the first waypoint at the end; drop it.
         if np.allclose(wps[0, :2], wps[-1, :2], atol=1e-6):
             wps = wps[:-1]
-        # 54 of the 62 official routes ALSO repeat a waypoint mid-loop. A zero-
-        # length segment has no direction, so arctan2(0, 0) poisons that
-        # waypoint's yaw and, through it, the curvature of its predecessor --
-        # a normal-length segment that every lap drives over. Divided by the
-        # clamped segment length that reads as |k| up to 3e6 1/m. Drop the
-        # duplicates before any geometry is derived from the polyline.
+        # 54 of the 62 routes also repeat one mid-loop, and a zero-length
+        # segment has no direction: arctan2(0, 0) poisons yaw, then curvature.
         step = np.roll(wps[:, :2], -1, axis=0) - wps[:, :2]
         wps = wps[np.linalg.norm(step, axis=1) >= 1e-3]
 

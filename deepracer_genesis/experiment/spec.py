@@ -253,9 +253,7 @@ class ExperimentSpec:
         action_dr: action-side domain randomization.
         algorithm: the training-algorithm slice.
         eval: evaluation config (periodic + out-of-loop holdout + charts).
-        resume: checkpoint the policy starts from, or None to train from
-            scratch. Lets a run fine-tune an existing policy (e.g. under a
-            frozen perception CNN) instead of relearning to drive.
+        resume: checkpoint the policy starts from, or None for random weights.
         total_env_steps: total environment steps to train for.
         eval_every_steps: eval interval in env-steps (0 = final eval only).
         seed: random seed.
@@ -363,11 +361,8 @@ class ExperimentSpec:
         # is a debug / small-num_envs / no-GPU path, not a throughput path, and —
         # unlike Madrona spatial tiling (Part O) — supports a SINGLE track only.
         if env.modality == "camera" and env.backend == "cpu":
-            # multi-track is fine here: Part O spatial tiling is renderer-agnostic
-            # (base_env sets grid_spacing from vision + >1 track), so each variant
-            # sits on its own world tile and a car's camera only ever frames its
-            # home track. The rasterizer still walks every tile's geometry, so the
-            # cost grows with the track count.
+            # multi-track is fine now: spatial tiling is renderer-agnostic, so
+            # each track sits on its own tile and a camera only frames its own.
             warnings.warn(
                 "camera obs on backend='cpu' uses the per-env RasterizerObsRenderer "
                 "(unbatched, far slower than Madrona) — a debug / small-num_envs / "

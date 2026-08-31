@@ -621,9 +621,7 @@ class PPO(Stage):
         entropy_coef: Entropy bonus coefficient.
         max_grad_norm: Gradient-norm clipping threshold.
         horizon: Rollout steps per env per iteration.
-        schedule: "adaptive" retunes lr from the measured KL; "fixed" keeps it.
-            Adaptive needs a KL estimated on enough samples -- below a few
-            thousand per minibatch it is noise, and lr random-walks to its cap.
+        schedule: "adaptive" retunes lr from the measured KL, "fixed" keeps it.
         desired_kl: KL target the adaptive schedule steers toward.
         KIND: Stage category tag (algorithm).
     """
