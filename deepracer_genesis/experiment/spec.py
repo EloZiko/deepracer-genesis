@@ -253,6 +253,9 @@ class ExperimentSpec:
         action_dr: action-side domain randomization.
         algorithm: the training-algorithm slice.
         eval: evaluation config (periodic + out-of-loop holdout + charts).
+        resume: checkpoint the policy starts from, or None to train from
+            scratch. Lets a run fine-tune an existing policy (e.g. under a
+            frozen perception CNN) instead of relearning to drive.
         total_env_steps: total environment steps to train for.
         eval_every_steps: eval interval in env-steps (0 = final eval only).
         seed: random seed.
@@ -267,6 +270,7 @@ class ExperimentSpec:
     action_dr: ActionDRSpec = field(default_factory=ActionDRSpec)
     algorithm: Optional[AlgorithmSpec] = None
     eval: EvalConfig = field(default_factory=EvalConfig)
+    resume: Optional[str] = None      # checkpoint to start from (fine-tuning)
     total_env_steps: int = 5_000_000
     eval_every_steps: int = 0        # 0 = final eval only; N = also every N env-steps
     seed: int = 0
@@ -359,11 +363,11 @@ class ExperimentSpec:
         # is a debug / small-num_envs / no-GPU path, not a throughput path, and —
         # unlike Madrona spatial tiling (Part O) — supports a SINGLE track only.
         if env.modality == "camera" and env.backend == "cpu":
-            if len(env.tracks) > 1:
-                raise SpecError(
-                    "camera-on-CPU uses the per-env rasterizer, which renders a "
-                    "single track only; multi-track camera training needs Madrona "
-                    "tiling on backend='gpu' (got tracks=%r)" % (env.tracks,))
+            # multi-track is fine here: Part O spatial tiling is renderer-agnostic
+            # (base_env sets grid_spacing from vision + >1 track), so each variant
+            # sits on its own world tile and a car's camera only ever frames its
+            # home track. The rasterizer still walks every tile's geometry, so the
+            # cost grows with the track count.
             warnings.warn(
                 "camera obs on backend='cpu' uses the per-env RasterizerObsRenderer "
                 "(unbatched, far slower than Madrona) — a debug / small-num_envs / "

@@ -26,6 +26,8 @@ _PPO_KEY_MAP = {
     "lr": "learning_rate",
     "entropy_coef": "entropy_coef",
     "max_grad_norm": "max_grad_norm",
+    "schedule": "schedule",
+    "desired_kl": "desired_kl",
 }
 
 
@@ -185,6 +187,23 @@ def run_rsl(spec: "ExperimentSpec", root: str = "runs", on_eval=None) -> EvalRec
                   if spec.eval_every_steps else 0)
 
     runner = OnPolicyRunner(sim, train_cfg, run_dir, device=device)
+    if spec.resume:
+        # fine-tune: start from an existing policy instead of random weights.
+        # Shapes must match (same obs/action layout), which is the case whenever
+        # only the SOURCE of the observations changes (sim vs frozen CNN).
+        # Weights only. rsl-rl's load() otherwise restores the optimizer and,
+        # with it, `self.learning_rate = optimizer.param_groups[0]["lr"]` --
+        # silently overwriting the lr this spec asked for with whatever the
+        # adaptive schedule had drifted to by the end of the source run (6.6e-3
+        # for a 2048-env run: 200x too large to fine-tune with). Adam's moments
+        # describe the source observation distribution anyway, which is exactly
+        # what changes here.
+        runner.load(spec.resume, load_cfg={"actor": True, "critic": True,
+                                           "optimizer": False, "iteration": False,
+                                           "rnd": False})
+        lr = train_cfg["algorithm"]["learning_rate"]
+        print(f"[rsl] resumed weights from {spec.resume} (lr {lr:g}, "
+              f"schedule {train_cfg['algorithm']['schedule']})")
 
     eval_history: list[dict] = []
     t0 = time.perf_counter()

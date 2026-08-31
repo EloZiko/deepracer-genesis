@@ -621,6 +621,10 @@ class PPO(Stage):
         entropy_coef: Entropy bonus coefficient.
         max_grad_norm: Gradient-norm clipping threshold.
         horizon: Rollout steps per env per iteration.
+        schedule: "adaptive" retunes lr from the measured KL; "fixed" keeps it.
+            Adaptive needs a KL estimated on enough samples -- below a few
+            thousand per minibatch it is noise, and lr random-walks to its cap.
+        desired_kl: KL target the adaptive schedule steers toward.
         KIND: Stage category tag (algorithm).
     """
 
@@ -633,6 +637,8 @@ class PPO(Stage):
     entropy_coef: float = 0.01
     max_grad_norm: float = 1.0
     horizon: int = 24
+    schedule: str = "adaptive"
+    desired_kl: float = 0.01
 
     KIND = "algorithm"
 
@@ -643,6 +649,7 @@ class PPO(Stage):
             "gae_lambda": self.gae_lambda, "lr": self.lr,
             "entropy_coef": self.entropy_coef,
             "max_grad_norm": self.max_grad_norm, "horizon": self.horizon,
+            "schedule": self.schedule, "desired_kl": self.desired_kl,
         }
 
     def apply(self, spec: ExperimentSpec) -> ExperimentSpec:
