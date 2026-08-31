@@ -17,10 +17,14 @@ import torch
 from PIL import Image
 from torch.utils.data import Dataset
 
+from perception import augment
+
 K = 4
 MAX_CURVATURE = 1.0          # past this, the track polyline itself is wrong
 REPO_ROOT = Path(__file__).resolve().parent.parent
 CACHE = REPO_ROOT / "data" / "cache"
+CACHE_VERSION = 2      # bump when the layout of index.npz changes, so a stale
+                       # cache is rebuilt instead of failing on a missing key
 
 DATASET_TRACKS = tuple(f"{t}_v2" for t in (
     "reinvent_base", "Oval_track", "Bowtie_track", "Monaco", "Spain_track",
@@ -68,8 +72,8 @@ def build_cache(tracks=DATASET_TRACKS):
     """
     CACHE.mkdir(parents=True, exist_ok=True)
     stamp = CACHE / "sources.json"
-    fingerprint = _fingerprint(tracks)
-    if stamp.exists() and json.loads(stamp.read_text()) == fingerprint:
+    state = {"version": CACHE_VERSION, "sources": _fingerprint(tracks)}
+    if stamp.exists() and json.loads(stamp.read_text()) == state:
         return
 
     offsets, sizes, targets, env, episode, track_id = [], [], [], [], [], []
@@ -99,13 +103,17 @@ def build_cache(tracks=DATASET_TRACKS):
              episode=np.concatenate(episode).astype(np.int32),
              track_id=np.concatenate(track_id).astype(np.int16),
              tracks=np.array(tracks))
-    stamp.write_text(json.dumps(fingerprint))
+    stamp.write_text(json.dumps(state))
 
 
 class RolloutDataset(Dataset):
-    """Stacks of k consecutive frames from one car, and the target of the last."""
+    """Stacks of k consecutive frames from one car, and the target of the last.
 
-    def __init__(self, tracks=DATASET_TRACKS, k=K):
+    ``augment`` adds camera jitter (see perception.augment). Off by default, so
+    validation and every other caller keep reading the frames as rendered.
+    """
+
+    def __init__(self, tracks=DATASET_TRACKS, k=K, augment=False):
         build_cache()
         d = np.load(CACHE / "index.npz")
         all_tracks = list(d["tracks"])
@@ -114,7 +122,9 @@ class RolloutDataset(Dataset):
         self.k = k
         self.offsets, self.sizes = d["offsets"], d["sizes"]
         self.targets = d["targets"]
+        self.augment = augment
         self._blob = None                  # opened per worker, never pickled
+        self._rng = None                   # idem, one stream per worker
 
         env, ep, tid = d["env"], d["episode"], d["track_id"]
         curvature = valid_curvatures(self.targets)
@@ -131,14 +141,21 @@ class RolloutDataset(Dataset):
 
     def __getitem__(self, n):
         i = self.index[n]
-        x = torch.cat([self._frame(i + j) for j in range(self.k)], dim=0)
+        camera = None
+        if self.augment:
+            if self._rng is None:
+                self._rng = np.random.default_rng()
+            camera = augment.sample_camera(self._rng)   # one state for the stack
+        x = torch.cat([self._frame(i + j, camera) for j in range(self.k)], dim=0)
         y = torch.from_numpy(self.targets[i + self.k - 1].copy())
         return x, y
 
-    def _frame(self, row):
+    def _frame(self, row, camera=None):
         if self._blob is None:
             self._blob = np.memmap(CACHE / "images.bin", dtype=np.uint8, mode="r")
         o, size = self.offsets[row], self.sizes[row]
         img = Image.open(io.BytesIO(self._blob[o:o + size].tobytes()))
         a = np.asarray(img, dtype=np.float32) / 255.0   # (H, W, 3)
+        if camera is not None:
+            a = augment.apply(a, camera, self._rng)
         return torch.from_numpy(a).permute(2, 0, 1)     # (3, H, W)

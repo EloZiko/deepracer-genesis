@@ -34,11 +34,24 @@ python -m perception.data_generation Monaco
 ```
 
 **2. Train the CNN** — 4 stacked frames in, 7 scalars out. Saves the best
-checkpoint by validation loss to `perception/perception.pt`.
+checkpoint by validation loss.
 
 ```bash
 python -m perception.train_cnn
 ```
+
+`AUGMENT` at the top of `train_cnn.py` switches camera jitter on for the
+training frames. It is what stands between a CNN that reads a clean render and
+one that survives a real camera, and it costs about 3x per frame loaded.
+
+Validation is never augmented, so the loss stays comparable across runs. The two
+settings write to different checkpoints — `perception_augmented.pt` and
+`perception.pt` — so neither run can overwrite the other. Point a policy at one
+with `feature_params={"checkpoint": "perception/perception_augmented.pt"}`.
+
+Expect the validation loss to be worse than an unaugmented run: the network is
+solving a harder problem. That is the point — the number only means something
+off the renderer if the training saw more than the renderer.
 
 **3. Fine-tune the policy through it** — same env, same policy, same reward;
 only the source of the seven channels changes. Starts from
@@ -54,6 +67,7 @@ caffeinate -i .venv/bin/python -m perception.train_policy_with_cnn
 |---|---|
 | `model.py` | `PerceptionCNN` — 4 convs, 2 dense layers, 496 k parameters |
 | `dataset.py` | frame stacks served from a flat memmap cache |
+| `augment.py` | camera jitter: exposure, gamma, contrast, white balance, noise |
 | `data_generation.py` | collects one track's rollouts |
 | `train_cnn.py` | trains the CNN |
 | `cnn_features.py` | `CNNPerceptionFeatures` — the frozen CNN in the env loop |

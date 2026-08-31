@@ -19,6 +19,11 @@ VAL_TRACKS = ("2022_july_pro_v2", "2022_march_open_v2", "2022_may_pro_v2",
               "morgan_open_v2", "penbay_pro_v2")
 TRAIN_TRACKS = tuple(t for t in DATASET_TRACKS if t not in VAL_TRACKS)
 
+AUGMENT = True      # camera jitter on the training frames; False = as rendered
+# an augmented run writes its own checkpoint, so the clean one is never lost
+CHECKPOINT = REPO_ROOT / "perception" / (
+    "perception_augmented.pt" if AUGMENT else "perception.pt")
+
 EPOCHS = 8          # 8x more data than before, so fewer epochs are enough
 BATCH = 64
 LR = 1e-4
@@ -41,7 +46,7 @@ def main():
     device = ("cuda" if torch.cuda.is_available()
               else "mps" if torch.backends.mps.is_available() else "cpu")
 
-    train_ds = RolloutDataset(tracks=TRAIN_TRACKS)
+    train_ds = RolloutDataset(tracks=TRAIN_TRACKS, augment=AUGMENT)
     val_ds = RolloutDataset(tracks=VAL_TRACKS)
     if len(val_ds) > VAL_MAX:      # fixed draw, so runs stay comparable
         g = torch.Generator().manual_seed(0)
@@ -55,7 +60,9 @@ def main():
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=EPOCHS)
     loss_fn = nn.MSELoss()
 
-    print(f"train {len(train_ds):,} | val {len(val_ds):,} | {device}")
+    print(f"train {len(train_ds):,} | val {len(val_ds):,} | {device}"
+          f" | augment {AUGMENT}")
+    print(f"writing to {CHECKPOINT.name}")
     best = float("inf")
     for epoch in range(EPOCHS):
         total = 0.0
@@ -79,7 +86,7 @@ def main():
 
         if val_loss < best:
             best = val_loss
-            torch.save(net.state_dict(), REPO_ROOT / "perception" / "perception.pt")
+            torch.save(net.state_dict(), CHECKPOINT)
             print("    -> saved")
 
     print(f"\nbest val: {best:.5f}")
