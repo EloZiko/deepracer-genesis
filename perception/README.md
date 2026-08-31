@@ -1,0 +1,88 @@
+# Perception
+
+Driving the policy from a camera instead of the simulator's exact state.
+
+`PerceptionFeatures` gives the policy 29 channels. Seven of them describe where
+the car is and what is ahead — the ones a real DeepRacer has no sensor for. This
+directory trains a CNN to recover those seven from the camera, freezes it, and
+puts it in the loop so the policy is driven by estimates instead of ground
+truth. The remaining 22 channels (past actions, command deltas) stay computed
+onboard, exactly as they would be on the car.
+
+`FrozenCNNToFeatureVector` was declared in the repo but never wired to a network.
+This is the network.
+
+Run everything from the repository root:
+
+```bash
+.venv/bin/python -m perception.<module>
+```
+
+## Pipeline
+
+```
+   data_generation  ->  train_cnn  ->  train_policy_with_cnn  ->  evaluation
+      camera frames      the CNN        the policy, fine-tuned      does it cost
+      + exact targets                   through the frozen CNN      anything?
+```
+
+**1. Collect** — one track at a time, 32 envs, each with its own randomised
+track appearance and starting point.
+
+```bash
+python -m perception.data_generation Monaco
+```
+
+**2. Train the CNN** — 4 stacked frames in, 7 scalars out. Saves the best
+checkpoint by validation loss to `perception/perception.pt`.
+
+```bash
+python -m perception.train_cnn
+```
+
+**3. Fine-tune the policy through it** — same env, same policy, same reward;
+only the source of the seven channels changes. Starts from
+`perception/reference_policy.pt`, a policy already trained on the exact values.
+
+```bash
+caffeinate -i .venv/bin/python -m perception.train_policy_with_cnn
+```
+
+## Files
+
+| file | what it is |
+|---|---|
+| `model.py` | `PerceptionCNN` — 4 convs, 2 dense layers, 496 k parameters |
+| `dataset.py` | frame stacks served from a flat memmap cache |
+| `data_generation.py` | collects one track's rollouts |
+| `train_cnn.py` | trains the CNN |
+| `cnn_features.py` | `CNNPerceptionFeatures` — the frozen CNN in the env loop |
+| `noisy_features.py` | the CNN's measured error injected, without the renderer |
+| `train_policy_with_cnn.py` | the policy fine-tuned through the real CNN |
+| `train_policy_with_noise.py` | the policy trained on simulated CNN error |
+
+### `evaluation/`
+
+| file | what it answers |
+|---|---|
+| `compare_perception.py` | same policy, same track — what does the CNN cost? |
+| `sweep_tracks.py` | where does it fail, and what geometry do those tracks share? |
+| `ablation.py` | which channels carry the loss: "where am I" or "what is ahead"? |
+| `compare_noise.py` | the two ends of the ablation on their own |
+| `evaluate_with_cnn.py` | a trained policy under the CNN, no training |
+
+### `visualization/`
+
+`showcase.py` runs the measurements, picks two tracks from the numbers, and
+stitches the side-by-side videos. The rest are single-purpose: fleet videos,
+policy paths, dataset paths and frames, track catalogue, top-down renders.
+
+## Notes
+
+**One camera scene per process.** pyrender's OpenGL context is process-global:
+destroying a previous scene tears down the live one, and the next render fails
+on `glBindFramebuffer: invalid operation`. Every script that touches more than
+one scene forks a subprocess per scene.
+
+**Outputs are not versioned.** Datasets land in `data/`, results and videos in
+`runs/`; both are ignored by git.

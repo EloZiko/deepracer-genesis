@@ -1,3 +1,11 @@
+"""The perception CNN: a stack of camera frames in, seven scalars out.
+
+The seven outputs are exactly the channels of ``PerceptionFeatures`` a camera
+can plausibly recover (lateral offset, heading, speed, yaw rate, slip angle and
+two curvatures ahead). The other 22 channels stay computed onboard, as they are
+on the real car.
+"""
+
 import torch
 import torch.nn as nn
 
@@ -13,7 +21,7 @@ class PerceptionCNN(nn.Module):
         )
         self.head = nn.Sequential(
             nn.Flatten(),
-            nn.Linear(64 * 6 * 8, 128), nn.ReLU(),
+            nn.Linear(64 * 6 * 8, 128), nn.ReLU(),   # 6x8 = a 120x160 frame after the four strides
             nn.Linear(128, n_targets),
         )
 
@@ -25,14 +33,14 @@ if __name__ == "__main__":
     net = PerceptionCNN()
     x = torch.zeros(8, 12, 120, 160)
 
-    print("forme a chaque etage :")
-    print(f"  entree        {tuple(x.shape)}")
-    for couche in net.features:
-        x = couche(x)
-        if isinstance(couche, torch.nn.Conv2d):
-            print(f"  apres conv    {tuple(x.shape)}")
+    print("shape at each stage:")
+    print(f"  input         {tuple(x.shape)}")
+    for layer in net.features:
+        x = layer(x)
+        if isinstance(layer, torch.nn.Conv2d):
+            print(f"  after conv    {tuple(x.shape)}")
     y = net.head(x)
-    print(f"  sortie        {tuple(y.shape)}")
+    print(f"  output        {tuple(y.shape)}")
 
     n = sum(p.numel() for p in net.parameters())
-    print(f"\nparametres a apprendre : {n:,}")
+    print(f"\nlearnable parameters: {n:,}")
