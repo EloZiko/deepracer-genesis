@@ -44,9 +44,9 @@ class CNNPerceptionPolicy(Experiment):
               "hamption_pro",          #       0.25  hard
               "thunder_hill_pro",      #       0.27  very hard
               "Tokyo_Training_track")  #       0.42  extreme
-    # 883 steps/s measured at 16 envs. The loop fits in one core out of ten and
-    # 1.4 GB out of 16, so raising the env count costs no wall time and takes
-    # the PPO batch from 384 to 1536 samples per update.
+    # mac: 883 steps/s measured at 16 envs. The loop fits in one core out of ten
+    # and 1.4 GB out of 16, so raising the env count costs no wall time and takes
+    # the PPO batch from 384 to 1536 samples per update. Raise it on a bigger box.
     num_envs = 64
     max_speed = 2.0
     lr = 3e-5          # we are refining a policy that already drives
@@ -66,7 +66,7 @@ class CNNPerceptionPolicy(Experiment):
                 frame_stack=4,
                 tracks=self.tracks,
                 num_envs=self.num_envs,
-                backend="cpu",          # no Madrona on Mac
+                backend="cpu",          # mac: no Madrona; "gpu" on CUDA
                 max_speed=self.max_speed,
             )
             >> VectorPolicy(keys=("state",))

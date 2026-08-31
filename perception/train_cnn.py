@@ -38,7 +38,8 @@ def evaluate(net, loader, loss_fn, device):
 
 
 def main():
-    device = "mps" if torch.backends.mps.is_available() else "cpu"
+    device = ("cuda" if torch.cuda.is_available()
+              else "mps" if torch.backends.mps.is_available() else "cpu")
 
     train_ds = RolloutDataset(tracks=TRAIN_TRACKS)
     val_ds = RolloutDataset(tracks=VAL_TRACKS)
@@ -46,7 +47,7 @@ def main():
         g = torch.Generator().manual_seed(0)
         val_ds = Subset(val_ds, torch.randperm(len(val_ds), generator=g)[:VAL_MAX].tolist())
     train_dl = DataLoader(train_ds, batch_size=BATCH, shuffle=True,
-                          num_workers=8, persistent_workers=True)
+                          num_workers=8, persistent_workers=True)   # mac: 8 of 10 cores
     val_dl = DataLoader(val_ds, batch_size=BATCH, num_workers=4, persistent_workers=True)
 
     net = PerceptionCNN().to(device)

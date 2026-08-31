@@ -77,6 +77,30 @@ caffeinate -i .venv/bin/python -m perception.train_policy_with_cnn
 stitches the side-by-side videos. The rest are single-purpose: fleet videos,
 policy paths, dataset paths and frames, track catalogue, top-down renders.
 
+## Running off a Mac
+
+Nothing here is macOS-only, but several defaults were sized for an Apple Silicon
+laptop. Every one of them is a parameter, marked `# mac:` at its line.
+
+| where | now | on a CUDA machine |
+|---|---|---|
+| `data_generation.py` | `backend="cpu"` | `"gpu"` — Madrona batches the camera on the GPU, far faster than the CPU rasterizer |
+| `train_policy_with_cnn.py` | `backend="cpu"` | `"gpu"`, same reason |
+| `train_policy_with_cnn.py` | `num_envs=64` | raise it; 64 was sized to one core out of ten |
+| `train_cnn.py` | `num_workers=8` | match the core count |
+| `visualization/render_track_topdown.py` | `"rasterizer"` | drop the line to use the default renderer |
+
+Chosen automatically, nothing to change: the CNN's device (`cuda`, else `mps`,
+else `cpu`) in `train_cnn.py`, and in `cnn_features.py` MPS when it is there and
+the env's own device otherwise. The banner font in `showcase.py` falls back to
+PIL's default when the macOS path is missing.
+
+`caffeinate -i` in the commands is macOS-only: it stops the machine sleeping
+during a long run. Drop it elsewhere.
+
+The one-scene-per-process rule below is a limitation of the pyrender rasterizer,
+which is the path taken because Madrona needs CUDA.
+
 ## Notes
 
 **One camera scene per process.** pyrender's OpenGL context is process-global:

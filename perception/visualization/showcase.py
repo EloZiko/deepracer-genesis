@@ -32,7 +32,7 @@ TRACKS = ("2022_march_open", "arctic_open", "jyllandsringen_open",
           "hamption_pro", "thunder_hill_pro", "Tokyo_Training_track",
           "dubai_open", "Monaco")
 SOURCES = ("sim", "cnn")
-FONT = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
+FONT = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"   # mac path; falls back below
 
 
 def banner(text, width, to):

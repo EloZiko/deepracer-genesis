@@ -25,7 +25,7 @@ def main():
     gs.init(backend=gs.cpu, logging_level="warning")
 
     cfg = get_env_cfg(vision=True, track=track, backend="cpu")
-    cfg["vision"]["vision_renderer"] = "rasterizer"   # no CUDA on Mac
+    cfg["vision"]["vision_renderer"] = "rasterizer"   # mac: no CUDA, so no Madrona
     cfg["vision"]["spectator"] = True
     cfg["vision"]["spectator_res"] = (1280, 960)
 

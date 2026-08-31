@@ -19,18 +19,24 @@ from deepracer_genesis.experiment.stages import DomainRandomizationTrackAppearan
 warnings.filterwarnings("ignore")
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-track = sys.argv[1]
+STEPS = 1500        # one full episode (30 s)
 
-world = (CameraEnvironment(
-    backend="cpu",
-    resolution=(160, 120),
-    num_envs=32,        # 32 appearances and 32 starting points per track;
-                        # the batched camera renders them in a single call
-    tracks=(track,),
-    feature_set=PerceptionFeatures,
-    random_start=True,
-) >> DomainRandomizationTrackAppearance(strength=0.6))
 
-# 1500 steps = one full episode (30 s)
-collect_rollout_dataset(world, out=str(REPO_ROOT / "data" / f"{track}_v2"),
-                        steps=1500, seed=0)
+def main():
+    track = sys.argv[1]
+    world = (CameraEnvironment(
+        backend="cpu",      # mac: no Madrona, so the CPU rasterizer; "gpu" on CUDA
+        resolution=(160, 120),
+        num_envs=32,        # 32 appearances and 32 starting points per track;
+                            # the batched camera renders them in a single call
+        tracks=(track,),
+        feature_set=PerceptionFeatures,
+        random_start=True,
+    ) >> DomainRandomizationTrackAppearance(strength=0.6))
+
+    collect_rollout_dataset(world, out=str(REPO_ROOT / "data" / f"{track}_v2"),
+                            steps=STEPS, seed=0)
+
+
+if __name__ == "__main__":
+    main()

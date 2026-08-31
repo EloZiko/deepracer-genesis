@@ -22,8 +22,8 @@ class CNNPerceptionFeatures(PerceptionFeatures):
     def __init__(self, env, params: dict):
         super().__init__(env, params)
         checkpoint = params.get("checkpoint") or DEFAULT_CHECKPOINT
-        # the camera env runs on CPU (no Madrona on Mac) but the CNN gains a lot
-        # from MPS: it is what dominates the cost of a step.
+        # mac: the camera env runs on CPU (no Madrona) but the CNN gains a lot from
+        # MPS, and it is what dominates the cost of a step.
         self.dev = ("mps" if params.get("cnn_device", "mps") == "mps"
                     and torch.backends.mps.is_available() else env.device)
         self.net = PerceptionCNN().to(self.dev).eval()
