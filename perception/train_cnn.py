@@ -51,8 +51,12 @@ def main():
     if len(val_ds) > VAL_MAX:      # fixed draw, so runs stay comparable
         g = torch.Generator().manual_seed(0)
         val_ds = Subset(val_ds, torch.randperm(len(val_ds), generator=g)[:VAL_MAX].tolist())
+    # augmenting costs ~3x per stack, so the loaders bound the run, not the GPU:
+    # more workers than cores still helps, they spend part of their time on the
+    # cache file rather than on the CPU
     train_dl = DataLoader(train_ds, batch_size=BATCH, shuffle=True,
-                          num_workers=8, persistent_workers=True)   # mac: 8 of 10 cores
+                          num_workers=14, persistent_workers=True,
+                          prefetch_factor=4)
     val_dl = DataLoader(val_ds, batch_size=BATCH, num_workers=4, persistent_workers=True)
 
     net = PerceptionCNN().to(device)
