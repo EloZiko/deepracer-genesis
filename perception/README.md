@@ -49,9 +49,16 @@ settings write to different checkpoints — `perception_augmented.pt` and
 `perception.pt` — so neither run can overwrite the other. Point a policy at one
 with `feature_params={"checkpoint": "perception/perception_augmented.pt"}`.
 
-Expect the validation loss to be worse than an unaugmented run: the network is
-solving a harder problem. That is the point — the number only means something
-off the renderer if the training saw more than the renderer.
+Measured, on the same clean validation set: augmenting costs nothing in
+accuracy (MSE 0.00977 against 0.00972, mean R2 0.796 against 0.799). On
+deliberately degraded frames the augmented network loses 3% against the clean
+one's 6%, so it is steadier, but only slightly.
+
+The reading is that the network was already photometrically invariant before
+any augmentation, for two reasons: collection already randomises the track
+appearance over 32 palettes, and the seven targets are geometric -- an edge
+stays an edge when gain or gamma move. The sim-to-real gap this leaves is
+structural, not photometric: lens distortion, mount pose, motion blur.
 
 **3. Fine-tune the policy through it** — same env, same policy, same reward;
 only the source of the seven channels changes. Starts from
