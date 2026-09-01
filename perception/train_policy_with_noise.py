@@ -37,7 +37,10 @@ class NoisyPerceptionPolicy(Experiment):
     ablation_group = "cnn"
     variant = "noisy_perception"
 
-    noise = 1.0            # 1 = the CNN's measured error, 0 = perfect perception
+    # 0 = the simulator's exact values, 1 = plus the CNN's measured per-channel
+    # error. Kept at 0 so a run differs from the reference policy only by its
+    # track set; ablation.py sweeps it.
+    noise = 0.0
     noise_channels = None  # None = all; else ("lateral", "heading"), etc.
     num_envs = 2048
     backend = "gpu"    # "gpu" = Metal on Mac, "cpu" otherwise
