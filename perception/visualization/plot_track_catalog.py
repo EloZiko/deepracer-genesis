@@ -14,8 +14,7 @@ import matplotlib.pyplot as plt
 from deepracer_genesis.envs.track import ASSETS_DIR, TRACKS
 from deepracer_genesis.tools.track_builder import plot_track, track_metrics
 
-from perception.dataset import DATASET_TRACKS, REPO_ROOT
-from perception.train_cnn import VAL_TRACKS
+from perception.dataset import DATASET_TRACKS, HOLDOUT_TRACKS, REPO_ROOT
 
 COLUMNS = 6
 
@@ -32,13 +31,13 @@ def main():
         r = route(name)
         plot_track(r, ax=ax, dash_len=0.6, dash_gap=0.7)
         m = track_metrics(r)
-        is_val = f"{name}_v2" in VAL_TRACKS
+        is_val = f"{name}_v2" in HOLDOUT_TRACKS
         ax.set_title(f"{name}\n{m['length_m']:.0f} m  |  {m['width_m']:.2f} m",
                      fontsize=6.5, pad=3, color="crimson" if is_val else "black")
     for ax in axes.flat[len(names):]:
         ax.axis("off")
 
-    fig.suptitle(f"{len(names)} tracks  -  red: validation", fontsize=11)
+    fig.suptitle(f"{len(names)} tracks  -  red: held out", fontsize=11)
     fig.tight_layout(rect=(0, 0, 1, 0.985))
     out = REPO_ROOT / "runs" / "figures" / "track_catalog.png"
     out.parent.mkdir(parents=True, exist_ok=True)
