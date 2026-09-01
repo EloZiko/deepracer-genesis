@@ -31,8 +31,8 @@ TEST_TRACKS = track_names(HOLDOUT_TRACKS)
 
 class NoisyPerceptionPolicy(Experiment):
     seed = 0
-    total_env_steps = 50_000_000     # 5x the tracks, so more samples;
-                                     # ~2 h at the 7 700 steps/s measured
+    total_env_steps = 50_000_000     # ~17 min: 48 900 steps/s measured on 50
+                                     # tracks at 2048 envs, Apple M-series
     eval_every_steps = 5_000_000
     ablation_group = "cnn"
     variant = "noisy_perception"
