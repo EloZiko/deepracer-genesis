@@ -9,8 +9,11 @@ puts it in the loop so the policy is driven by estimates instead of ground
 truth. The remaining 22 channels (past actions, command deltas) stay computed
 onboard, exactly as they would be on the car.
 
-`FrozenCNNToFeatureVector` was declared in the repo but never wired to a network.
-This is the network.
+The repo already has a `FrozenCNNToFeatureVector` stage, which turns images into
+a 256 dimension embedding. This is not that. The CNN here predicts seven named
+physical quantities, so the observation vector keeps its exact layout and the
+same policy weights run on either source. That is what makes the comparison
+possible: swap where the seven numbers come from, change nothing else.
 
 Run everything from the repository root:
 
