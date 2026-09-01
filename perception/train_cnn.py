@@ -9,15 +9,9 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Subset
 
-from perception.dataset import DATASET_TRACKS, REPO_ROOT, RolloutDataset
+from perception.dataset import (HOLDOUT_TRACKS, REPO_ROOT, TRAINING_TRACKS,
+                                RolloutDataset)
 from perception.model import PerceptionCNN
-
-# 10 tracks picked so their distribution matches that of the whole set
-VAL_TRACKS = ("2022_july_pro_v2", "2022_march_open_v2", "2022_may_pro_v2",
-              "2022_reinvent_champ_v2", "2022_summit_speedway_v2",
-              "AmericasGeneratedInclStart_v2", "Belille_v2", "dubai_open_v2",
-              "morgan_open_v2", "penbay_pro_v2")
-TRAIN_TRACKS = tuple(t for t in DATASET_TRACKS if t not in VAL_TRACKS)
 
 AUGMENT = True      # camera jitter on the training frames; False = as rendered
 # an augmented run writes its own checkpoint, so the clean one is never lost
@@ -46,8 +40,8 @@ def main():
     device = ("cuda" if torch.cuda.is_available()
               else "mps" if torch.backends.mps.is_available() else "cpu")
 
-    train_ds = RolloutDataset(tracks=TRAIN_TRACKS, augment=AUGMENT)
-    val_ds = RolloutDataset(tracks=VAL_TRACKS)
+    train_ds = RolloutDataset(tracks=TRAINING_TRACKS, augment=AUGMENT)
+    val_ds = RolloutDataset(tracks=HOLDOUT_TRACKS)
     if len(val_ds) > VAL_MAX:      # fixed draw, so runs stay comparable
         g = torch.Generator().manual_seed(0)
         val_ds = Subset(val_ds, torch.randperm(len(val_ds), generator=g)[:VAL_MAX].tolist())

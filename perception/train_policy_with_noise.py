@@ -18,18 +18,22 @@ from deepracer_genesis.experiment import (
     run,
 )
 
+from perception.dataset import HOLDOUT_TRACKS, TRAINING_TRACKS, track_names
 from perception.noisy_features import NoisyPerceptionFeatures
 
-TRAIN_TRACKS = ("reinvent_base", "Oval_track", "Bowtie_track", "Monaco",
-                "Spain_track", "New_York_Track", "Austin", "Singapore",
-                "China_track", "Canada_Training")
-TEST_TRACKS = ("Vegas_track", "Mexico_track")
+# every track the dataset covers, minus the shared holdout. Ten training tracks
+# left the policy unable to drive an unseen one: off-track rate tracked corner
+# severity rank for rank (+1.00 over six held-out tracks), while the perception
+# source barely moved it. Breadth is the lever, not a better CNN.
+TRAIN_TRACKS = track_names(TRAINING_TRACKS)
+TEST_TRACKS = track_names(HOLDOUT_TRACKS)
 
 
 class NoisyPerceptionPolicy(Experiment):
     seed = 0
-    total_env_steps = 20_000_000     # ~45 min at 7 700 steps/s
-    eval_every_steps = 2_000_000
+    total_env_steps = 50_000_000     # 5x the tracks, so more samples;
+                                     # ~2 h at the 7 700 steps/s measured
+    eval_every_steps = 5_000_000
     ablation_group = "cnn"
     variant = "noisy_perception"
 

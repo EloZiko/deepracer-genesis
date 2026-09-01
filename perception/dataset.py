@@ -45,6 +45,20 @@ DATASET_TRACKS = tuple(f"{t}_v2" for t in (
     "thunder_hill_pro",
 ))
 
+# Held out from the whole pipeline: neither the CNN nor the policy ever trains
+# on these. Ten tracks spread over the full range of curvature spread -- every
+# quintile is represented, so the holdout is neither all easy nor all hopeless.
+HOLDOUT_TRACKS = ("2022_july_pro_v2", "2022_march_open_v2", "2022_may_pro_v2",
+                  "2022_reinvent_champ_v2", "2022_summit_speedway_v2",
+                  "AmericasGeneratedInclStart_v2", "Belille_v2", "dubai_open_v2",
+                  "morgan_open_v2", "penbay_pro_v2")
+TRAINING_TRACKS = tuple(t for t in DATASET_TRACKS if t not in HOLDOUT_TRACKS)
+
+
+def track_names(tracks):
+    """Drop the dataset suffix: "Monaco_v2" -> "Monaco"."""
+    return tuple(t[:-3] for t in tracks)
+
 
 def valid_curvatures(targets, limit=MAX_CURVATURE):
     """True for rows whose two curvature targets are both plausible.
