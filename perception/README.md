@@ -122,6 +122,28 @@ during a long run. Drop it elsewhere.
 The one-scene-per-process rule below is a limitation of the pyrender rasterizer,
 which is the path taken because Madrona needs CUDA.
 
+## What the measurements say
+
+Three things were expected to matter and were measured instead. All numbers come
+from the ten held-out tracks or from `evaluation/compare_perception.py`.
+
+| change | expected | measured |
+|---|---|---|
+| exact simulator values -> frozen CNN | a real cost to driving | 0-1% on tracks the policy can drive |
+| camera jitter on the CNN's training frames | robustness worth having | mean R2 0.796 against 0.799; 3% steadier on degraded frames |
+| policy trained on 10 tracks -> 50 | fixes the hard tracks | off-track 0.31 -> 0.29, progress 42.9 m -> 44.9 m |
+
+What does predict failure is corner severity: over the ten held-out tracks the
+off-track rate follows the curvature spread of the track, rank correlation +0.82
+-- and identically for both policies, +0.82 against +0.83. Training on five times
+the tracks, including one well past the hardest the policy had ever seen, did not
+change that relationship at all.
+
+So the limit is not the perception, and not the breadth of the training set.
+Sharper corners are simply harder, and what is left to try sits in the policy:
+its capacity, how far ahead it is allowed to look (two curvatures, at 1 m and
+3 m), and how much the reward makes leaving the track cost.
+
 ## Notes
 
 **One camera scene per process.** pyrender's OpenGL context is process-global:

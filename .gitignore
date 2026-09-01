@@ -24,3 +24,4 @@ runs/nuit*
 runs/rapport_nuit*
 runs/verif.log
 runs/vitrine/
+runs/*.json

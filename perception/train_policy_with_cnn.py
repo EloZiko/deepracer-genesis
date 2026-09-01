@@ -28,8 +28,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 class CNNPerceptionPolicy(Experiment):
     seed = 0
-    # start from the policy trained on the simulator's exact values: it already
-    # knows how to drive, all that is left is absorbing the CNN's errors
+    # start from a policy trained on the simulator's exact values. Measured, the
+    # CNN's error costs 0-1% on tracks the policy can already drive, so there is
+    # little for this run to absorb: it demonstrates that a policy survives being
+    # driven by the camera, it does not make it better.
     resume = str(REPO_ROOT / "perception" / "reference_policy.pt")
     total_env_steps = 3_000_000
     eval_every_steps = 300_000
